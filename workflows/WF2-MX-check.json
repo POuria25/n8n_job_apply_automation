@@ -34,13 +34,7 @@
         80
       ],
       "id": "180c68d7-9a73-4a9d-9602-6187ba61fedd",
-      "name": "Lock new",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Lock new"
     },
     {
       "parameters": {
@@ -86,13 +80,7 @@
         80
       ],
       "id": "16844d0c-c027-467a-909a-84f6fb2e530a",
-      "name": "Save check",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Save check"
     },
     {
       "parameters": {
@@ -143,14 +131,7 @@
         0
       ],
       "id": "ae7f2a39-a7a5-4ee1-b004-31791540dac5",
-      "name": "Warn",
-      "webhookId": "6e34bf8a-7892-4afc-a2f8-3250ca7d2d2b",
-      "credentials": {
-        "telegramApi": {
-          "id": " ",
-          "name": "Telegram account"
-        }
-      }
+      "name": "Warn"
     },
     {
       "parameters": {
@@ -267,16 +248,11 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "0a984798-4662-4e26-8d08-9f9eabca3f17",
-  "meta": {
-    "instanceId": "15dcc6b4cb95ee4f2f31850a8541d4e1edbf5b81ed21a977e26cb687cdcbd098"
-  },
   "nodeGroups": [],
-  "id": "deZfBT8k7pWxA3Kr",
   "tags": []
 }

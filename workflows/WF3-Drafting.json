@@ -34,13 +34,7 @@
         80
       ],
       "id": "f4670211-410d-433a-95d6-6047ec26e461",
-      "name": "Lock drafting",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Lock drafting"
     },
     {
       "parameters": {
@@ -213,14 +207,7 @@
         0
       ],
       "id": "c21af85a-9771-4922-8f6d-c149a61eb9b4",
-      "name": "Send preview",
-      "webhookId": "b55f615d-86fd-469a-bbd2-4937aa5365e5",
-      "credentials": {
-        "telegramApi": {
-          "id": " ",
-          "name": "Telegram account"
-        }
-      }
+      "name": "Send preview"
     },
     {
       "parameters": {
@@ -237,13 +224,7 @@
         0
       ],
       "id": "937599e3-2560-49c0-ae06-b1222cad0cb1",
-      "name": "Save draft",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Save draft"
     },
     {
       "parameters": {
@@ -274,13 +255,7 @@
         240
       ],
       "id": "af624147-68df-40cd-aafb-462e77dcb6c4",
-      "name": "Mark error",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Mark error"
     },
     {
       "parameters": {
@@ -297,14 +272,7 @@
         240
       ],
       "id": "ac23fe03-1789-4aef-bb50-0bb38646e98c",
-      "name": "Alert",
-      "webhookId": "d4c7cb8f-27c2-4b88-bb60-f1cc5f7f6f75",
-      "credentials": {
-        "telegramApi": {
-          "id": " ",
-          "name": "Telegram account"
-        }
-      }
+      "name": "Alert"
     }
   ],
   "pinData": {},
@@ -438,16 +406,11 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "2e8b61f3-c17a-4b1b-91f4-2f8b8b0121db",
-  "meta": {
-    "instanceId": "15dcc6b4cb95ee4f2f31850a8541d4e1edbf5b81ed21a977e26cb687cdcbd098"
-  },
   "nodeGroups": [],
-  "id": "8SmusTJnkmtl13Mw",
   "tags": []
 }

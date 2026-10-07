@@ -1,0 +1,31 @@
+# Private environment files, including renamed uploads
+.env*
+!.env.example
+*.env
+
+# Private application documents and generated files
+assets/
+data/
+jobs/
+backups/
+*.pdf
+*.log
+*.dump
+*.backup
+*.sqlite*
+
+# Local service data
+.n8n/
+n8n_data/
+pg_data/
+tectonic_cache/
+
+# Credential exports and full-instance workflow backups
+credentials*.json
+workflows-backup*.json
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
