@@ -116,6 +116,7 @@ Recommended repository layout:
 | `workflows/WF4-Sending.json` | Email sending |
 | `Dockerfile` | n8n image with Tectonic |
 | `docker-compose.yml` | Containers, environment, and volumes |
+| `examples/` | Fictional letter and email templates to copy into `assets/` |
 | `.env.example` | Configuration names with placeholders only |
 | `.gitignore` | Exclude secrets and private runtime files |
 

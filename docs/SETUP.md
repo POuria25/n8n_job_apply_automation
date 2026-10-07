@@ -111,7 +111,7 @@ Verify the database session timezone with `SHOW TIMEZONE;`. WF4 uses `sent_at::d
 | `/data/assets/cv.pdf` | CV, referenced by the applicant record |
 | `/data/assets/declaration.pdf` | Declaration, currently hardcoded in WF4 |
 
-The filenames for the first three may differ if the database paths match. Files must be readable by the container's `node` user. `/data/jobs` and the cache must be writable. No private document belongs in the public repository.
+Fictional starting points for the first two are in [`examples/`](../examples/). The filenames for the first three may differ if the database paths match. Files must be readable by the container's `node` user. `/data/jobs` and the cache must be writable. No private document belongs in the public repository.
 
 The LaTeX template must contain `<<RECIPIENT>>` and `<<DATE>>`. WF3 replaces the first occurrence of each. A minimal illustrative template is:
 
