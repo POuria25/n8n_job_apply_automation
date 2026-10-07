@@ -58,7 +58,7 @@ For the uploaded workflow with `<YOUR EMAIL>`, replacing that placeholder privat
 | n8n local data | Named volume `n8n_data` → `/home/node/.n8n` |
 | PostgreSQL data | Named volume `pg_data` → `/var/lib/postgresql/data` |
 
-The Dockerfile installs Tectonic through an external installer and uses `n8nio/n8n:latest`. The reviewed files do not establish a tested n8n version. Record and pin a compatible version after testing; a floating image is not a reproducible release. The memory limits are settings from the supplied deployment, not verified minimum requirements.
+The Dockerfile pins `n8nio/n8n:2.42.4`, the version the original installation reports from `n8n --version`. The workflows have not been tested on other versions; change the tag deliberately and retest when upgrading. Tectonic is still installed through an external installer that fetches its current release, so that part of the image is not pinned. The memory limits are settings from the supplied deployment, not verified minimum requirements.
 
 Compose enables environment access, allows `/data` for file nodes, and sets `NODES_EXCLUDE=[]` for node availability. WF3 requires Execute Command, `node`, and `tectonic`. Verify these settings against your installed n8n version and restrict editing to trusted operators.
 

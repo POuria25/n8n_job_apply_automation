@@ -57,6 +57,24 @@ stateDiagram-v2
 
 Some failures can leave a record in `checking`, `drafting`, or `sending`. `sent` means SMTP acceptance, not confirmed delivery to the recipient.
 
+### The workflows in n8n
+
+**WF1 — Telegram poller:** polling, routing, bulk import, approval buttons, commands, and the guided dialog.
+
+![WF1 Telegram poller workflow in the n8n editor](docs/images/wf1-telegram-poller.png)
+
+**WF2 — MX check**
+
+![WF2 MX check workflow in the n8n editor](docs/images/wf2-mx-check.png)
+
+**WF3 — Drafting:** the upper branch sends the PDF preview, the lower one reports a compilation error.
+
+![WF3 Drafting workflow in the n8n editor](docs/images/wf3-drafting.png)
+
+**WF4 — Sending**
+
+![WF4 Sending workflow in the n8n editor](docs/images/wf4-sending.png)
+
 ## Using the bot
 
 | Command | Purpose |
@@ -114,7 +132,7 @@ Recommended repository layout:
 | `workflows/WF2-MX-check.json` | Domain checks |
 | `workflows/WF3-Drafting.json` | PDF generation |
 | `workflows/WF4-Sending.json` | Email sending |
-| `Dockerfile` | n8n image with Tectonic |
+| `Dockerfile` | n8n 2.42.4 image with Tectonic |
 | `docker-compose.yml` | Containers, environment, and volumes |
 | `db/schema.sql` | Application tables, constraints, and initial state |
 | `db/applicant.example.sql` | Fictional applicant record to copy and fill in |
