@@ -24,7 +24,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH sent_today AS (\n  SELECT applicant_id, count(*) AS c FROM targets\n  WHERE status = 'sent' AND sent_at::date = current_date GROUP BY applicant_id),\npick AS (\n  SELECT DISTINCT ON (t.applicant_id) t.id\n  FROM targets t JOIN applicants a ON a.id = t.applicant_id\n  LEFT JOIN sent_today s ON s.applicant_id = a.id\n  WHERE t.status = 'queued' AND COALESCE(s.c, 0) < a.daily_limit\n  ORDER BY t.applicant_id, t.approved_at)\nUPDATE targets t SET status = 'sending'\nFROM applicants a\nWHERE t.applicant_id = a.id AND t.id IN (SELECT id FROM pick)\nRETURNING t.id, t.company, t.email, t.hr_email, t.subject, t.email_body, t.letter_pdf,\n          a.cv_file, a.sender_name, a.phone, a.chat_id;",
+        "query": "-- One queued application per applicant, oldest approval first, within the daily limit.\n-- Applications already being sent count towards the limit. The row locks make two\n-- overlapping runs unable to claim the same application or the same applicant.\nWITH busy AS (\n  SELECT applicant_id, count(*) AS c FROM targets\n  WHERE status = 'sending' OR (status = 'sent' AND sent_at::date = current_date)\n  GROUP BY applicant_id),\npick AS (\n  SELECT x.id\n  FROM applicants a\n  LEFT JOIN busy b ON b.applicant_id = a.id\n  CROSS JOIN LATERAL (\n    SELECT t.id FROM targets t\n    WHERE t.applicant_id = a.id AND t.status = 'queued'\n    ORDER BY t.approved_at, t.id\n    LIMIT 1\n    FOR UPDATE SKIP LOCKED) x\n  WHERE COALESCE(b.c, 0) < a.daily_limit\n  FOR UPDATE OF a SKIP LOCKED)\nUPDATE targets t SET status = 'sending', claimed_at = now()\nFROM applicants a\nWHERE t.applicant_id = a.id AND t.id IN (SELECT id FROM pick) AND t.status = 'queued'\nRETURNING t.id, t.company, t.email, t.hr_email, t.subject, t.email_body, t.letter_pdf,\n          a.cv_file, a.sender_name, a.phone, a.chat_id;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -123,7 +123,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE targets SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1 RETURNING id;",
+        "query": "UPDATE targets SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1 AND status = 'sending' RETURNING id;",
         "options": {
           "queryReplacement": "={{ $('Attach').item.json.id }}"
         }
@@ -171,7 +171,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE targets SET status = 'error', error = convert_from(decode($1, 'base64'), 'UTF8') WHERE id = $2 RETURNING id;",
+        "query": "UPDATE targets SET status = 'error', error = convert_from(decode($1, 'base64'), 'UTF8') WHERE id = $2 AND status = 'sending' RETURNING id;",
         "options": {
           "queryReplacement": "={{ $json.err_b64 }},{{ $json.id }}"
         }

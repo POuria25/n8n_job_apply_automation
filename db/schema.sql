@@ -4,7 +4,8 @@
 -- of those queries against it on PostgreSQL. It is not a dump of the original
 -- installation, so column types and constraints may differ from that database.
 --
--- Safe to run more than once: nothing existing is dropped or overwritten.
+-- Safe to run more than once, and safe to run on an existing installation:
+-- nothing is dropped or overwritten, missing columns are added.
 --
 -- Usage (see docs/SETUP.md):
 --   docker compose exec -T postgres psql -U n8n -d candidature -v ON_ERROR_STOP=1 < db/schema.sql
@@ -56,10 +57,16 @@ CREATE TABLE IF NOT EXISTS targets (
     letter_pdf   text,                           -- container path of the compiled letter
     error        text,
     attempts     integer NOT NULL DEFAULT 0,     -- incremented by "Refaire"
+    draft_version integer NOT NULL DEFAULT 0,    -- incremented each time WF3 drafts the letter
+    claimed_at   timestamptz,                    -- when a worker last claimed the row
     approved_at  timestamptz,
     sent_at      timestamptz,
     created_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Upgrade path: an installation created before these columns existed gets them here.
+ALTER TABLE targets ADD COLUMN IF NOT EXISTS draft_version integer NOT NULL DEFAULT 0;
+ALTER TABLE targets ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
 
 -- Duplicate rules. The inserts in WF1 use ON CONFLICT DO NOTHING, and the bot
 -- then answers "existe déjà (même nom ou même domaine email)". These two

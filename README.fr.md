@@ -85,6 +85,7 @@ Les guides techniques sont en anglais.
 | [Transcriptions de démonstration](docs/DEMO.fr.md) | À quoi ressemble chaque scénario dans Telegram |
 | [The workflows in n8n](docs/WORKFLOWS.md) | Captures des quatre workflows et organisation du dépôt |
 | [Operations and limitations](docs/OPERATIONS.md) | Dépannage, reprise, faiblesses connues |
+| [Testing](docs/TESTING.md) | Tests en base de données des requêtes des workflows et façon de les lancer |
 | [Publishing on GitHub](docs/PUBLISHING.md) | Partager les workflows sans divulguer de données privées |
 
 Un déploiement a besoin de quatre éléments absents de ce dépôt : un fichier `.env` avec vos secrets, un enregistrement de candidat, vos documents privés (modèle de lettre, texte de l'e-mail, CV, déclaration) et les identifiants saisis dans n8n.
@@ -93,8 +94,8 @@ Un déploiement a besoin de quatre éléments absents de ce dépôt : un fichier
 
 - La vérification MX ne prouve pas qu'une boîte aux lettres existe, et une panne DNS passagère peut faire rejeter un domaine valide.
 - Si WF1 échoue après avoir lu les mises à jour Telegram, ces messages sont perdus.
-- WF4 ne garantit pas un envoi unique : des exécutions simultanées ou des relances manuelles peuvent envoyer un e-mail deux fois.
-- Un enregistrement interrompu en cours d'étape reste en `checking`, `drafting` ou `sending` jusqu'à sa remise à zéro manuelle.
+- Deux exécutions simultanées de WF4 ne peuvent pas envoyer deux fois la même candidature. Un doublon reste possible dans un cas : le serveur de messagerie accepte le message, le workflow échoue avant de l'enregistrer, puis la candidature est remise en file à la main.
+- Un enregistrement interrompu en `checking` ou `drafting` est repris au bout de 15 minutes. Un enregistrement interrompu en `sending` n'est jamais relancé automatiquement et attend une vérification manuelle.
 - Les retours de non-distribution et les réponses ne sont pas suivis.
 - Certaines parties de WF1 supposent un seul candidat.
 - Un employeur est refusé comme doublon si son nom ou son domaine e-mail est déjà enregistré pour le candidat.
@@ -103,6 +104,6 @@ Les détails et les corrections proposées se trouvent dans le [guide d'exploita
 
 ## État du projet
 
-La documentation provient de la lecture des workflows et de la configuration. Le schéma de base de données et la règle de validation ont été testés sur une base PostgreSQL ; la chaîne complète n'a pas été testée de bout en bout à partir de ce dépôt. Commencez avec un seul candidat et envoyez la première candidature à une adresse que vous contrôlez.
+La documentation provient de la lecture des workflows et de la configuration. Le schéma et toutes les requêtes des workflows sont couverts par des [tests en base de données](docs/TESTING.md), y compris les règles de validation et l'envoi simultané. Ces tests n'exécutent ni n8n, ni Telegram, ni serveur de messagerie : la chaîne complète n'a donc pas été testée de bout en bout à partir de ce dépôt. Commencez avec un seul candidat et envoyez la première candidature à une adresse que vous contrôlez.
 
 Les messages Telegram, les requêtes DNS et les e-mails passent par des services externes, même si tout le reste est auto-hébergé.

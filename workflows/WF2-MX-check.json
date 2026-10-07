@@ -24,7 +24,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE targets t SET status = 'checking'\nFROM applicants a\nWHERE t.applicant_id = a.id\n  AND t.id IN (SELECT id FROM targets WHERE status = 'new' ORDER BY id LIMIT 10 FOR UPDATE SKIP LOCKED)\nRETURNING t.id, t.company, t.email_domain, a.chat_id;",
+        "query": "UPDATE targets t SET status = 'checking', claimed_at = now()\nFROM applicants a\nWHERE t.applicant_id = a.id\n  AND t.id IN (SELECT id FROM targets\n               WHERE status = 'new'\n                  OR (status = 'checking' AND claimed_at < now() - interval '15 minutes')\n               ORDER BY id LIMIT 10 FOR UPDATE SKIP LOCKED)\nRETURNING t.id, t.company, t.email_domain, a.chat_id;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",

@@ -41,6 +41,7 @@ Runs on weekdays, every 30 minutes from 08:00 to 17:30. Takes one approved appli
 | `db/schema.sql` | Application tables, constraints, and initial state |
 | `db/applicant.example.sql` | Fictional applicant record to copy and fill in |
 | `examples/` | Fictional letter and email templates to copy into `assets/` |
+| `tests/` | Database tests for the workflow queries |
 | `.env.example` | Configuration names with placeholders only |
 | `docs/` | Setup, operations, publishing, demo, and this page |
 
