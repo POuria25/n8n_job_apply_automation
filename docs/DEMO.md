@@ -1,10 +1,10 @@
 # Demo: what a session looks like
 
-[Back to README](../README.md)
+[Back to README](../README.md) · **English** · [Français](DEMO.fr.md) · [Deutsch](DEMO.de.md) · [فارسی](DEMO.fa.md)
 
 Text transcripts of the bot in Telegram, used in place of screenshots so that no employer or contact appears. **Every company, person, and address below is invented.** `[ … ]` marks an inline button.
 
-Scenarios 1 to 3 are the output of the actual `Dialog` code from WF1, run on this invented input. The bot messages in scenarios 4 to 7 are copied from the message templates in the workflows. The `example.com` and `example.org` domains are placeholders: they do not accept mail, so a live run needs an address on a domain that does.
+Scenarios 1 to 3 are the output of the actual `Dialog` code from WF1, run on this invented input. The bot messages in scenarios 4 to 7 are copied from the message templates in the workflows; the approval rule in scenario 7 was checked by running the workflow's query against a test database. The `example.com` and `example.org` domains are placeholders: they do not accept mail, so a live run needs an address on a domain that does.
 
 ## 1. Guided entry
 
@@ -168,11 +168,19 @@ If the MX check fails, no letter is drafted and the bot says why.
 Bot   ⚠️ Garage Exemple : le domaine example.org ne reçoit pas d'emails. Vérifie l'adresse et renvoie la ligne corrigée.
 ```
 
-## 7. Tapping a button twice
+## 7. Old previews and repeated taps
 
-A button only works while its application is waiting for approval. A second tap, or a tap on an old preview, changes nothing.
+Each button is tied to the preview it arrived with. A second tap changes nothing, and after **Refaire** the buttons of the earlier preview stop working: only the newest preview can be approved.
 
 ```text
-You   (taps ✅ Envoyer again on the same preview)
+You   (taps 🔄 Refaire on the first preview)
+Bot   🔄 Nouvelle version en préparation : Société Exemple S.A.
+
+      … a new preview arrives …
+
+You   (taps ✅ Envoyer on the FIRST preview)
 Bot   ⚠️ Déjà traité ou introuvable.
+
+You   (taps ✅ Envoyer on the new preview)
+Bot   ✅ Validé : Société Exemple S.A. — envoi programmé.
 ```

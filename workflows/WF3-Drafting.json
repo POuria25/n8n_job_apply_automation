@@ -24,7 +24,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE targets t SET status = 'drafting'\nFROM applicants a\nWHERE t.applicant_id = a.id\n  AND t.id IN (SELECT id FROM targets WHERE status = 'email_found' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\nRETURNING t.id, t.company, t.email, t.address, t.postcity, t.contact, t.hr_email,\n          a.chat_id, a.skeleton_file, a.email_sample_file;",
+        "query": "UPDATE targets t SET status = 'drafting'\nFROM applicants a\nWHERE t.applicant_id = a.id\n  AND t.id IN (SELECT id FROM targets WHERE status = 'email_found' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\nRETURNING t.id, t.company, t.email, t.address, t.postcity, t.contact, t.hr_email, t.attempts,\n          a.chat_id, a.skeleton_file, a.email_sample_file;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -86,7 +86,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const t = $('Lock drafting').item.json;\nconst parts = String($json.stdout || '').split('@@@SEP@@@');\nif (parts.length < 2) throw new Error('Fichiers assets introuvables');\nconst [skeleton, sample] = parts.map(s => s.trim());\nconst map = { '\\\\': '\\\\textbackslash{}', '&': '\\\\&', '%': '\\\\%', '$': '\\\\$', '#': '\\\\#', '_': '\\\\_',\n              '{': '\\\\{', '}': '\\\\}', '~': '\\\\textasciitilde{}', '^': '\\\\textasciicircum{}' };\nconst esc = s => String(s ?? '').replace(/[\\\\&%$#_{}~^]/g, c => map[c]);\nconst attention = t.contact ? `À l'attention de ${t.contact}` : \"À l'attention du service Ressources humaines\";\nconst recipient = [t.company, attention, t.address, t.postcity].filter(Boolean).map(esc).join('\\\\\\\\\\n');\nconst date = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });\nconst tex = skeleton.replace('<<RECIPIENT>>', recipient).replace('<<DATE>>', date);\n// email body = sample without the greeting line\nconst body = sample.replace(/^\\s*Madame, Monsieur,\\s*/i, '').trim();\nconst subject = 'Candidature spontanée – Apprentissage DAP Agent administratif et commercial';\nconst b64 = s => Buffer.from(String(s), 'utf8').toString('base64');\nconst caption = `${t.company} → ${[t.email, t.hr_email].filter(Boolean).join(' + ')}\\n${[attention, t.address, t.postcity].filter(Boolean).join('\\n')}\\n\\nObjet : ${subject}`.slice(0, 1000);\nreturn { json: { id: t.id, chat_id: t.chat_id, company: t.company, email: t.email, dir: `/data/jobs/${t.id}`,\n  tex_b64: b64(tex), subject_b64: b64(subject), body_b64: b64(body), caption } };"
+        "jsCode": "const t = $('Lock drafting').item.json;\nconst parts = String($json.stdout || '').split('@@@SEP@@@');\nif (parts.length < 2) throw new Error('Fichiers assets introuvables');\nconst [skeleton, sample] = parts.map(s => s.trim());\nconst map = { '\\\\': '\\\\textbackslash{}', '&': '\\\\&', '%': '\\\\%', '$': '\\\\$', '#': '\\\\#', '_': '\\\\_',\n              '{': '\\\\{', '}': '\\\\}', '~': '\\\\textasciitilde{}', '^': '\\\\textasciicircum{}' };\nconst esc = s => String(s ?? '').replace(/[\\\\&%$#_{}~^]/g, c => map[c]);\nconst attention = t.contact ? `À l'attention de ${t.contact}` : \"À l'attention du service Ressources humaines\";\nconst recipient = [t.company, attention, t.address, t.postcity].filter(Boolean).map(esc).join('\\\\\\\\\\n');\nconst date = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });\nconst tex = skeleton.replace('<<RECIPIENT>>', recipient).replace('<<DATE>>', date);\n// email body = sample without the greeting line\nconst body = sample.replace(/^\\s*Madame, Monsieur,\\s*/i, '').trim();\nconst subject = 'Candidature spontanée – Apprentissage DAP Agent administratif et commercial';\nconst b64 = s => Buffer.from(String(s), 'utf8').toString('base64');\nconst caption = `${t.company} → ${[t.email, t.hr_email].filter(Boolean).join(' + ')}\\n${[attention, t.address, t.postcity].filter(Boolean).join('\\n')}\\n\\nObjet : ${subject}`.slice(0, 1000);\nreturn { json: { id: t.id, version: Number(t.attempts) || 0, chat_id: t.chat_id, company: t.company, email: t.email, dir: `/data/jobs/${t.id}`,\n  tex_b64: b64(tex), subject_b64: b64(subject), body_b64: b64(body), caption } };"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -176,19 +176,19 @@
                   {
                     "text": "✅ Envoyer",
                     "additionalFields": {
-                      "callback_data": "=approve:{{ $('Render').item.json.id }}"
+                      "callback_data": "=approve:{{ $('Render').item.json.id }}:{{ $('Render').item.json.version }}"
                     }
                   },
                   {
                     "text": "🔄 Refaire",
                     "additionalFields": {
-                      "callback_data": "=redo:{{ $('Render').item.json.id }}"
+                      "callback_data": "=redo:{{ $('Render').item.json.id }}:{{ $('Render').item.json.version }}"
                     }
                   },
                   {
                     "text": "❌ Ignorer",
                     "additionalFields": {
-                      "callback_data": "=skip:{{ $('Render').item.json.id }}"
+                      "callback_data": "=skip:{{ $('Render').item.json.id }}:{{ $('Render').item.json.version }}"
                     }
                   }
                 ]
