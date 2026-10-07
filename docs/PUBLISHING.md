@@ -11,7 +11,7 @@ Publish a clean source copy. Keep the live VPS configuration, documents, databas
 3. Include `.env.example` with placeholders only. Do not include the working `.env`, even if it is in a renamed file such as `.env(1)`.
 4. Export workflows with `active` set to `false` and empty `pinData`. Remove `staticData`, top-level `id`, `versionId`, instance `meta`, and node `webhookId` fields from the public copies. Preserve structural node IDs and connections.
 5. Remove each node's entire `credentials` property. Users will select their own credentials after importing. Blank strings or spaces are not useful credential references.
-6. Replace the sender email with a neutral placeholder, or use the documented `SENDER_EMAIL` variant consistently across WF4, Compose, and `.env.example`.
+6. Keep the sender address out of the workflow: WF4 reads it from `SENDER_EMAIL`, which is set in the private `.env` and appears in `.env.example` only as a placeholder.
 7. Inspect every node parameter, code string, URL, sample, screenshot, and document for personal information or pasted secrets. Metadata removal alone is not a secret scan.
 
 Credential names and IDs are references, not login secrets. They are removed for portability. Actual passwords or API keys pasted into node parameters are different: they can be exposed in exported JSON.

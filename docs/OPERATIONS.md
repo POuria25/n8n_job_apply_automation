@@ -12,7 +12,7 @@ The observations below come from static workflow inspection. Suggested fixes are
 
 Dialog state is held in `conversations`. Contact parsing recognizes email addresses, common address patterns, postcodes, and honorifics. These are heuristics: review the recap. Ordinary text containing a semicolon is routed to the bulk parser; explicitly recognized dialog commands have precedence.
 
-Approval updates are scoped to the target ID, applicant ID, and `awaiting_approval` status. `approve` moves the row to `queued`, `skip` to `skipped`, and the fallback action returns it to `email_found`. The code should explicitly validate allowed actions before applying a callback. A repeated approval normally cannot change a row that has already left `awaiting_approval`.
+Each approval button carries `action:targetId:draftVersion`. The version is `targets.attempts` at the moment WF3 sent that preview, and **Refaire** increments it. `Apply decision` changes a row only when the target ID, applicant ID, `awaiting_approval` status, and version all match and the action is `approve`, `redo`, or `skip`. So a button works only on the preview it was sent with: after Refaire, the buttons of the older preview answer "Déjà traité ou introuvable", and a repeated tap on the current one does the same. Buttons sent before versions were added carry no version and count as version 0, so they still work on a draft that was never redone. WF1 and WF3 must be updated together, because one writes the version and the other checks it.
 
 ### WF2: MX checks
 

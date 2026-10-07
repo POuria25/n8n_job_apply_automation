@@ -100,7 +100,7 @@
     },
     {
       "parameters": {
-        "fromEmail": "={{ $json.sender_name }} <YOUR EMAIL>",
+        "fromEmail": "={{ $json.sender_name }} <{{ $env.SENDER_EMAIL }}>",
         "toEmail": "={{ [$json.email, $json.hr_email].filter(Boolean).join(', ') }}",
         "subject": "={{ $json.subject }}",
         "emailFormat": "text",

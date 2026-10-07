@@ -1,42 +1,40 @@
 # Candidature Bot
 
+**English** · [Français](README.fr.md) · [Deutsch](README.de.md) · [فارسی](README.fa.md)
+
 **Prepare, review, and send job applications from Telegram.**
 
-Candidature Bot is a self-hosted application workflow built with **n8n, PostgreSQL, Docker, and LaTeX**. Add an employer through a French-language Telegram conversation or a bulk text import. The system checks the email domain, generates a cover-letter PDF, asks for approval, and queues the application for scheduled email delivery.
+Candidature Bot is a self-hosted pipeline built with **n8n, PostgreSQL, Docker, and LaTeX**. You give the bot an employer's name and email address in a French-language Telegram chat. It checks the email domain, builds a cover-letter PDF, shows it to you for approval, and sends the approved application by email at a steady pace.
 
-Drafting uses a fixed template: the recipient block and date change for each employer. **No DeepSeek, OpenAI, or other LLM integration is present in these workflows.**
+The letter is a fixed template: only the recipient block and the date change per employer. **No AI model writes or rewrites anything.**
+
+![WF1, the Telegram workflow, in the n8n editor](docs/images/wf1-telegram-poller.png)
+
+*WF1, the Telegram interface. All four workflows are shown in [The workflows in n8n](docs/WORKFLOWS.md).*
 
 ## Features
 
-- Guided company entry with optional address and HR-contact details.
+- Guided employer entry, with optional address and HR contact.
 - Pasted contact blocks and semicolon-separated bulk imports.
-- Telegram chat allowlist backed by PostgreSQL.
-- Email-domain MX checks through Google Public DNS.
+- Access limited to registered Telegram chats.
+- Email-domain check (MX records) before any letter is drafted.
 - Cover-letter PDFs compiled with Tectonic.
-- Telegram preview with **Envoyer**, **Refaire**, and **Ignorer** buttons.
-- Scheduled SMTP delivery with CV and declaration attachments.
-- Application status tracking and `/stats` summaries.
+- Approval in Telegram with **Envoyer**, **Refaire**, and **Ignorer** buttons; nothing is sent without it.
+- Scheduled SMTP sending with CV and declaration attached, capped per day.
+- Status tracking and `/stats` summaries.
 
-The current templates target a Luxembourg **DAP Agent administratif et commercial** apprenticeship. The subject, letter, email sample, and declaration attachment must be adapted for other applications.
-
-## Project status
-
-This repository shares the workflow implementation and deployment configuration. A fresh deployment also needs the application database (created from `db/schema.sql`), an applicant record, private documents, and locally configured credentials. The schema was written from the workflow queries and tested against them; it is not a dump of the original installation. Private assets are not included.
-
-The documentation is based on static inspection of WF1–WF4, the supplied Dockerfile, and Docker Compose configuration. It does not claim an end-to-end deployment test, guaranteed delivery, or duplicate-free sending. Start with one applicant and test only against an address you control.
+The supplied subject line and attachment name target a Luxembourg **DAP Agent administratif et commercial** apprenticeship. Adapt the subject, letter, email text, and declaration for other applications.
 
 ## How it works
 
-The four workflows run independently and exchange work through PostgreSQL records. Generated PDFs are shared through a Docker volume.
+Four workflows run independently and hand work to each other through the `status` of each employer record in PostgreSQL.
 
-| Workflow | Schedule | Responsibility |
+| Workflow | Schedule | Job |
 |---|---|---|
-| WF1 — Telegram poller | Every 5 seconds | Receive messages, manage dialogs, save employers, process approval decisions |
-| WF2 — MX check | Every 2 minutes | Check up to 10 new employer domains |
-| WF3 — Drafting | Every 3 minutes | Generate one letter and request approval |
-| WF4 — Sending | Weekdays, every 30 minutes from 08:00 to 17:30 | Send queued applications, normally one per applicant per run |
-
-The intended schedule timezone is `Europe/Luxembourg`. Verify the workflow timezone and PostgreSQL timezone separately: the daily count is calculated in the database.
+| WF1 — Telegram poller | Every 5 seconds | Receive messages, run the dialog, save employers, apply approval decisions |
+| WF2 — MX check | Every 2 minutes | Check up to 10 new email domains |
+| WF3 — Drafting | Every 3 minutes | Build one letter and ask for approval |
+| WF4 — Sending | Weekdays, every 30 minutes, 08:00 to 17:30 | Send one approved application per applicant |
 
 ```mermaid
 stateDiagram-v2
@@ -55,25 +53,7 @@ stateDiagram-v2
     sending --> error: SMTP error
 ```
 
-Some failures can leave a record in `checking`, `drafting`, or `sending`. `sent` means SMTP acceptance, not confirmed delivery to the recipient.
-
-### The workflows in n8n
-
-**WF1 — Telegram poller:** polling, routing, bulk import, approval buttons, commands, and the guided dialog.
-
-![WF1 Telegram poller workflow in the n8n editor](docs/images/wf1-telegram-poller.png)
-
-**WF2 — MX check**
-
-![WF2 MX check workflow in the n8n editor](docs/images/wf2-mx-check.png)
-
-**WF3 — Drafting:** the upper branch sends the PDF preview, the lower one reports a compilation error.
-
-![WF3 Drafting workflow in the n8n editor](docs/images/wf3-drafting.png)
-
-**WF4 — Sending**
-
-![WF4 Sending workflow in the n8n editor](docs/images/wf4-sending.png)
+`sent` means the mail server accepted the message, not that it reached the recipient. The schedule is meant to run in the `Europe/Luxembourg` timezone.
 
 ## Using the bot
 
@@ -81,81 +61,46 @@ Some failures can leave a record in `checking`, `drafting`, or `sending`. `sent`
 |---|---|
 | `/start` | Show the welcome message |
 | `/nouveau` or `/new` | Start an employer entry |
-| `/hr` or `/rh` | Enter HR details during an active dialog |
+| `/hr` or `/rh` | Enter HR details during an entry |
 | `/annuler` | Cancel the current entry |
 | `/stats` | Show application counts by status |
 
-For full example sessions with invented data, see the [demo transcripts](docs/DEMO.md).
+Send `/nouveau` and answer the questions, or paste all the details at once. Check the recap before saving: the bot cannot tell when a company name is paired with another company's email address.
 
-Start with `/nouveau` and answer the questions. Optional fields can be skipped. Review the recap before saving: input classification uses heuristics and may misinterpret pasted text.
+When the PDF preview arrives:
 
-Example contact block, using fictional data:
+- **Envoyer** queues the application for the next sending slot.
+- **Refaire** builds it again from the current template. Buttons on the older preview then stop working.
+- **Ignorer** skips the application.
 
-```text
-/new Example Company
-recruitment@example.com
-12 rue Exemple
-L-1234 Ville
-/hr Madame Exemple
-hr@example.com
-```
-
-Bulk input accepts one employer per line, either in a message or a text document:
-
-```text
-Company; company email; street address; postcode and town; HR name; HR email
-Example Company; recruitment@example.com; 12 rue Exemple; L-1234 Ville; Madame Exemple; hr@example.com
-```
-
-The first line above explains the format; **do not include it as a header in the actual import**. Only the company name and company email are required.
-
-When the PDF arrives:
-
-- **Envoyer:** queue this application for a sending slot.
-- **Refaire:** generate it again using the current template and stored details. The date may change; the body is not rewritten by AI.
-- **Ignorer:** skip this application.
-
-The preview contains the letter and recipient information. It does not preview every attachment or the complete final email; check the email sample, CV, and declaration during setup.
+See the [demo transcripts](docs/DEMO.md) for complete example sessions, including bulk import, with invented data.
 
 ## Setup and documentation
 
-1. Follow [Installation and credentials](docs/SETUP.md).
-2. Run the controlled first-send checklist in that guide.
-3. Use [Operations and limitations](docs/OPERATIONS.md) for troubleshooting.
-4. Follow [Publishing on GitHub](docs/PUBLISHING.md) before sharing exports.
-5. See [Demo transcripts](docs/DEMO.md) for what each scenario looks like in Telegram.
-
-Recommended repository layout:
-
-| Path | Purpose |
+| Guide | Contents |
 |---|---|
-| `README.md` | Project overview and usage |
-| `docs/` | Setup, operations, and publishing instructions |
-| `workflows/WF1-Telegram-poller.json` | Telegram interface |
-| `workflows/WF2-MX-check.json` | Domain checks |
-| `workflows/WF3-Drafting.json` | PDF generation |
-| `workflows/WF4-Sending.json` | Email sending |
-| `Dockerfile` | n8n 2.42.4 image with Tectonic |
-| `docker-compose.yml` | Containers, environment, and volumes |
-| `db/schema.sql` | Application tables, constraints, and initial state |
-| `db/applicant.example.sql` | Fictional applicant record to copy and fill in |
-| `examples/` | Fictional letter and email templates to copy into `assets/` |
-| `.env.example` | Configuration names with placeholders only |
-| `.gitignore` | Exclude secrets and private runtime files |
+| [Installation and credentials](docs/SETUP.md) | Docker, database schema, private documents, credentials, first test send |
+| [Demo transcripts](docs/DEMO.md) | What each scenario looks like in Telegram |
+| [The workflows in n8n](docs/WORKFLOWS.md) | Screenshots of the four workflows and the repository layout |
+| [Operations and limitations](docs/OPERATIONS.md) | Troubleshooting, recovery, known weaknesses |
+| [Publishing on GitHub](docs/PUBLISHING.md) | Sharing the workflows without leaking private data |
 
-Rename exported files to the paths above when organizing the repository. Private `assets/` and runtime volumes are intentionally excluded.
+A deployment needs four things that are not in this repository: a `.env` file with your secrets, an applicant record, your private documents (letter template, email text, CV, declaration), and the credentials you enter in n8n.
 
-## Important limitations
+## Limitations
 
-- MX checks do not verify individual mailboxes and can misclassify temporary DNS failures.
-- WF1 saves its polling offset before processing, so downstream failures can lose messages.
-- WF4 has no exactly-once delivery mechanism; overlapping runs or manual retries can duplicate emails.
-- There is no automatic recovery for abandoned claim states, bounce processing, or reply tracking.
-- Several branches assume one applicant; concurrent chats need additional testing and changes.
-- Duplicate detection comes from two unique indexes in `db/schema.sql` (company name and email domain per applicant). The domain rule blocks two employers that share a mail provider; see the setup guide to remove it.
+- The MX check does not prove a mailbox exists, and a temporary DNS failure can mark a good domain as invalid.
+- If WF1 fails after reading Telegram updates, those messages are lost.
+- WF4 does not guarantee exactly-once sending: overlapping runs or manual retries can send an email twice.
+- A record interrupted mid-step stays in `checking`, `drafting`, or `sending` until it is reset by hand.
+- Bounces and replies are not tracked.
+- Parts of WF1 assume a single applicant.
+- An employer is refused as a duplicate when its name or its email domain is already saved for the applicant.
 
-See the operations guide for details and proposed improvements. These are documented limitations, not fixes included in this documentation update.
+Details and proposed fixes are in the [operations guide](docs/OPERATIONS.md).
 
-## Technology
+## Status
 
-n8n orchestrates the stages; PostgreSQL stores state; Telegram provides the interface; Tectonic compiles LaTeX; SMTP sends applications. Deployment is self-hosted, but Telegram messages, DNS queries, and email still pass through external services.
+The documentation comes from reading the workflows and configuration. The database schema and the approval rule were tested against a PostgreSQL database; the complete pipeline has not been tested end to end from this repository. Start with one applicant and send the first application to an address you control.
+
+Telegram messages, DNS lookups, and email pass through external services, although everything else is self-hosted.

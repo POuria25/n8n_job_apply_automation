@@ -14,35 +14,24 @@ chmod 600 .env
 mkdir -p assets
 ```
 
-The original Compose file reads these three variables:
+Compose reads these four variables:
 
 ```dotenv
 PG_PASSWORD=REPLACE_WITH_A_STRONG_DATABASE_PASSWORD
 N8N_ENCRYPTION_KEY=REPLACE_WITH_A_PRIVATE_RANDOM_ENCRYPTION_KEY
-TELEGRAM_TOKEN=REPLACE_WITH_YOUR_BOT_TOKEN
+TELEGRAM_TOKEN=REPLACE_WITH_YOUR_TELEGRAM_BOT_TOKEN
+SENDER_EMAIL=applicant@example.com
 ```
 
 Do not overwrite an existing working `.env`. Keep an existing n8n encryption key when restoring its credential database; replacing it arbitrarily can prevent decryption.
 
-The earlier sanitized distribution additionally uses `SENDER_EMAIL`. If adopting that variant, add this to `.env.example` and your local `.env`:
-
-```dotenv
-SENDER_EMAIL=applicant@example.com
-```
-
-Pass it under the n8n service's `environment` list:
-
-```yaml
-- SENDER_EMAIL=${SENDER_EMAIL}
-```
-
-Then use this expression in **WF4 → Send email → From Email**:
+`SENDER_EMAIL` is the From address of every application. Compose passes it to n8n, and **WF4 → Send email → From Email** reads it:
 
 ```text
 ={{ $json.sender_name }} <{{ $env.SENDER_EMAIL }}>
 ```
 
-For the uploaded workflow with `<YOUR EMAIL>`, replacing that placeholder privately is also valid. A From address is personal configuration, not a password. It must be authorized by the selected SMTP account. One environment variable still means one sender account; it does not implement separate mailboxes for multiple applicants.
+A From address is personal configuration, not a password, but it must be authorized by the SMTP account selected in n8n. One variable means one sender account: it does not give several applicants separate mailboxes. If the variable is missing, the From field is empty and sending fails, so recreate the n8n container after editing `.env` (`docker compose up -d`).
 
 ## 2. Understand the supplied deployment
 
@@ -193,7 +182,7 @@ There is no AI credential to configure for these workflows. Other workflows or c
 
 1. Import one canonical copy of each workflow. Keep all four inactive while configuring them; verify this in the UI rather than assuming an import behavior.
 2. Assign the correct Postgres, Telegram, and SMTP credentials to all applicable nodes. Remove empty or whitespace-only credential references from public templates.
-3. Configure the From address and customize WF3's subject. Confirm all three attachment paths.
+3. Check that `SENDER_EMAIL` is set and customize WF3's subject. Confirm all three attachment paths.
 4. Use a dedicated bot with no active webhook and no other poller. Telegram polling and webhooks are mutually exclusive. Obtain the allowed private chat ID before enabling WF1; keep API URLs containing the bot token out of screenshots and shared logs.
 5. Enable WF1 and confirm `/start`, `/nouveau`, and `/stats` work for the registered chat.
 6. Add one test employer with an email address you control. Enable WF2 and WF3; inspect the generated PDF and caption.

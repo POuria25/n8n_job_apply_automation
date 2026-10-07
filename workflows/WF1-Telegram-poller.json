@@ -132,9 +132,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE targets SET\n  status = CASE $1 WHEN 'approve' THEN 'queued' WHEN 'skip' THEN 'skipped' ELSE 'email_found' END,\n  approved_at = CASE WHEN $1 = 'approve' THEN now() ELSE approved_at END,\n  attempts = attempts + CASE WHEN $1 = 'redo' THEN 1 ELSE 0 END\nWHERE id = $2 AND applicant_id = $3 AND status = 'awaiting_approval'\nRETURNING company, status;",
+        "query": "UPDATE targets SET\n  status = CASE $1 WHEN 'approve' THEN 'queued' WHEN 'skip' THEN 'skipped' ELSE 'email_found' END,\n  approved_at = CASE WHEN $1 = 'approve' THEN now() ELSE approved_at END,\n  attempts = attempts + CASE WHEN $1 = 'redo' THEN 1 ELSE 0 END\nWHERE id = $2 AND applicant_id = $3 AND status = 'awaiting_approval'\n  AND attempts = $4 AND $1 IN ('approve', 'redo', 'skip')\nRETURNING company, status;",
         "options": {
-          "queryReplacement": "={{ $json.action }},{{ $json.id }},{{ $json.applicant_id }}"
+          "queryReplacement": "={{ $json.action }},{{ $json.id }},{{ $json.applicant_id }},{{ $json.version }}"
         }
       },
       "type": "n8n-nodes-base.postgres",
@@ -149,7 +149,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const [action, id] = String($json.data || '').split(':');\nreturn { json: { ...$json, action, id: Number(id) } };"
+        "jsCode": "// Button data is \"action:targetId:draftVersion\". The version is targets.attempts at the time the\n// preview was sent, so a button only works for the preview it belongs to. Buttons sent before\n// versions existed have no third part and count as version 0.\nconst [action = '', id = '', version = ''] = String($json.data || '').split(':');\nconst ok = ['approve', 'redo', 'skip'].includes(action) && /^\\d+$/.test(id) && /^\\d*$/.test(version);\nreturn { json: { ...$json, action: ok ? action : 'invalid', id: ok ? Number(id) : 0, version: Number(version) || 0 } };"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
