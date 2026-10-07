@@ -81,7 +81,7 @@ docker compose exec -T postgres createdb -U n8n candidature
 docker compose exec -T postgres psql -U n8n -d candidature -v ON_ERROR_STOP=1 < db/schema.sql
 ```
 
-The script can be run again safely: it creates only what is missing and does not reset the Telegram offset.
+The script can be run again safely: it creates only what is missing and does not reset the Telegram offset. **When updating an existing installation, run it again before importing newer workflows**: it adds the columns they need (`draft_version`, `claimed_at`) without touching existing rows.
 
 | Table | Purpose |
 |---|---|

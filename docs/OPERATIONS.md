@@ -2,7 +2,7 @@
 
 [Back to README](../README.md)
 
-The observations below come from static workflow inspection. Suggested fixes are not implemented by this documentation update.
+The observations below come from reading the workflows. The claim, approval, and recovery rules described here are covered by the database tests in [`tests/`](../tests/); see [Testing](TESTING.md). Nothing here has been verified inside a running n8n instance.
 
 ## Workflow details
 
@@ -12,27 +12,29 @@ The observations below come from static workflow inspection. Suggested fixes are
 
 Dialog state is held in `conversations`. Contact parsing recognizes email addresses, common address patterns, postcodes, and honorifics. These are heuristics: review the recap. Ordinary text containing a semicolon is routed to the bulk parser; explicitly recognized dialog commands have precedence.
 
-Each approval button carries `action:targetId:draftVersion`. The version is `targets.attempts` at the moment WF3 sent that preview, and **Refaire** increments it. `Apply decision` changes a row only when the target ID, applicant ID, `awaiting_approval` status, and version all match and the action is `approve`, `redo`, or `skip`. So a button works only on the preview it was sent with: after Refaire, the buttons of the older preview answer "Déjà traité ou introuvable", and a repeated tap on the current one does the same. Buttons sent before versions were added carry no version and count as version 0, so they still work on a draft that was never redone. WF1 and WF3 must be updated together, because one writes the version and the other checks it.
+Each approval button carries `action:targetId:draftVersion`. The version is `targets.draft_version`, which WF3 increments every time it drafts the letter, whether after **Refaire**, a manual retry, or an automatic one. `Apply decision` changes a row only when the target ID, applicant ID, `awaiting_approval` status, and version all match and the action is `approve`, `redo`, or `skip`. So a button works only on the preview it was sent with: after Refaire, the buttons of the older preview answer "Déjà traité ou introuvable", and a repeated tap on the current one does the same. Buttons sent before versions were added carry no version and count as version 0, so they still work on a preview that was sent before the upgrade and not redrafted since. WF1 and WF3 must be updated together, because one writes the version and the other checks it.
 
 ### WF2: MX checks
 
-Up to ten `new` records are claimed as `checking`. Google DNS is queried for MX records. The decision accepts an MX answer unless all MX answers are null MX (`0 .`). It writes `email_found` or `no_email` and warns on a failed check.
+Up to ten `new` records are claimed as `checking`, and the claim time is stored in `claimed_at`. A record still in `checking` 15 minutes after it was claimed is treated as abandoned and claimed again. Google DNS is queried for MX records. The decision accepts an MX answer unless all MX answers are null MX (`0 .`). It writes `email_found` or `no_email` and warns on a failed check.
 
 Only the company's email domain is checked; a separately supplied HR email domain is not independently checked. A pass does not establish mailbox existence. A failed check is not conclusive evidence that the domain cannot receive email.
 
 ### WF3: PDF drafting
 
-One `email_found` row becomes `drafting`. Applicant file paths supply the LaTeX skeleton and email sample. `Render` escapes the recipient block for LaTeX and substitutes the date. `Compile` writes and compiles `/data/jobs/<id>/letter.tex`.
+One `email_found` row becomes `drafting`; the claim stores `claimed_at` and increments `draft_version`. A record still in `drafting` 15 minutes after it was claimed is claimed again. Applicant file paths supply the LaTeX skeleton and email sample. `Render` escapes the recipient block for LaTeX and substitutes the date. `Compile` writes and compiles `/data/jobs/<id>/letter.tex`.
 
-The success path sends the PDF preview before changing the status to `awaiting_approval`. A sufficiently fast button press can therefore arrive before that status is saved. Compilation failures handled by the workflow become `error`; failures elsewhere may leave the row claimed.
+On success the draft is saved and the status set to `awaiting_approval` **before** the preview is sent, so a button works from the moment it appears. If reading the PDF or sending the preview then fails, `Preview failed` puts the record back to `email_found` and WF3 drafts it again on a later run. After five drafts the record is set to `error` with "Aperçu non envoyé sur Telegram" instead, so one unreachable chat cannot block the queue. Compilation failures become `error` and are reported in the chat.
 
 ### WF4: SMTP delivery
 
-`Pick one` selects the oldest approved queued record per applicant, subject to the count of `sent` records for the current database date. The workflow reads the letter, CV, and declaration and sends them to the company email plus optional HR email.
+`Pick one` claims the oldest approved `queued` record of each applicant whose count for the day is below `daily_limit`. The count is the records `sent` on the current database date plus those currently `sending`. The workflow then reads the letter, CV, and declaration and sends them to the company email plus the optional HR email.
 
-Normal scheduled operation provides 20 slots each weekday: 08:00, 08:30, through 17:30. Under serial execution with no manual runs, the expected maximum per applicant is `min(daily_limit, 20)`. Manual runs, concurrent executions, and timing around failures mean this is not a guaranteed rate or quota boundary.
+The claim is one statement that locks the applicant row and the chosen record (`FOR UPDATE … SKIP LOCKED`) and re-checks `status = 'queued'` when it updates. Two overlapping runs therefore cannot claim the same application, and cannot both claim for the same applicant. The earlier query could: an overlapping run received the same row, which meant the same email twice.
 
-The claim query does not use the row-locking selection pattern used by WF2/WF3. Do not describe it as concurrency-safe or exactly-once. SMTP success followed by a failed database update can leave an email sent while its row still says `sending`.
+Normal scheduled operation provides 20 slots each weekday: 08:00, 08:30, through 17:30, so the maximum per applicant is `min(daily_limit, 20)`.
+
+One duplicate risk remains and cannot be removed from the database side: if the mail server accepts a message and the workflow then fails before `Mark sent`, the record stays in `sending` although the email went out. For that reason a `sending` record is never retried automatically; see the recovery section. `Mark sent` and `Mark send error` only act on a record that is still `sending`, so a late or repeated report cannot overwrite the other outcome.
 
 ## Diagnose before retrying
 
@@ -48,9 +50,14 @@ SELECT id, company, status, error, approved_at, sent_at
 FROM targets
 WHERE status IN ('checking', 'drafting', 'sending', 'error')
 ORDER BY id;
+
+-- Sends that were interrupted and need a manual decision
+SELECT id, company, email, claimed_at
+FROM targets
+WHERE status = 'sending' AND claimed_at < now() - interval '10 minutes';
 ```
 
-A claim state does not by itself prove a record is abandoned. Check running n8n executions and logs first. There is no `claimed_at` field in the workflow queries, so elapsed claim time cannot be inferred reliably from them.
+`claimed_at` shows when a record was last claimed. `checking` and `drafting` recover by themselves after 15 minutes. A record in `sending` for more than a few minutes needs a decision from you: check running n8n executions and the mailbox first.
 
 | Symptom | Check |
 |---|---|
@@ -67,6 +74,8 @@ Compilation logs are inside the n8n container at `/data/jobs/<id>/compile.log`. 
 ## Recover a selected record
 
 Pause affected schedules and wait for in-flight executions before changing state. Work on a known target ID, never all claimed rows at once. The following examples use fictional ID `42`; replace it after inspection.
+
+`checking` and `drafting` records are taken back automatically after 15 minutes, so the two statements below are only needed to hurry that along, or for records claimed before `claimed_at` existed (their `claimed_at` is empty and they are not recovered automatically).
 
 For a confirmed abandoned DNS check:
 
@@ -101,11 +110,10 @@ The chat ID above is fictional. Do not publish query results containing actual a
 | Observed behavior | Consequence | Proposed improvement |
 |---|---|---|
 | Offset is saved before processing | A failed downstream step can lose that batch; overlapping polling can also create races | Persist incoming updates and deduplicate by update ID before acknowledging progress |
-| No stale-claim recovery | Interrupted work can remain claimed indefinitely | Add claim timestamps, ownership, and stage-specific recovery |
+| An interrupted send stays in `sending` | It is not retried, to avoid a duplicate, and it uses one place in the daily limit until resolved | Alert the applicant when a record has been `sending` for too long |
 | DNS errors continue into the decision node | Temporary failures may become `no_email` | Separate transport errors and DNS status from definitive MX results |
 | No implicit-MX fallback | A domain without explicit MX may be rejected even when SMTP fallback is possible | Implement the intended SMTP lookup policy, including A/AAAA fallback where appropriate |
-| Preview precedes approval-state update | Very fast approval can be ignored | Persist state before delivering an actionable preview, with failure recovery |
-| Sending lacks atomic claim protection and delivery reconciliation | Concurrent runs or uncertain retries can duplicate email | Improve claim locking and preserve send-attempt/message identifiers; reconcile uncertain SMTP outcomes |
+| No reconciliation of an uncertain send | If SMTP accepts a message and the status update fails, only a manual check can tell whether it was sent | Record a message identifier per attempt and reconcile against the mailbox |
 | Fixed sender, subject, and declaration | Multiple applicants cannot independently configure these | Add per-applicant configuration and credential routing |
 | WF1 uses first-item assumptions in some branches | Simultaneous applicants may receive missing or mixed summaries | Group processing and replies by applicant/chat |
 | Duplicate behavior depends on schema | Corrected employer data may conflict instead of updating | Review actual constraints and implement explicit correction/upsert behavior |
@@ -113,7 +121,7 @@ The chat ID above is fictional. Do not publish query results containing actual a
 | Bulk email validation permits some malformed characters | Comma-separated query parameters can be affected | Tighten address validation and review parameter binding for the deployed node version |
 | No bounce or reply processing | `sent` is not a delivery or response metric | Add independent delivery/reply handling if required |
 
-`replied` and `stop` appear in the stats labels, but no supplied workflow sets them. `attempts` is incremented by Refaire; it does not enforce a retry limit. The letter uses the drafting date, which may precede the sending date.
+`replied` and `stop` appear in the stats labels, but no supplied workflow sets them. `attempts` counts Refaire presses and enforces no limit; `draft_version` counts drafts and is what the buttons are checked against. The letter uses the drafting date, which may precede the sending date.
 
 ## Privacy, backups, and maintenance
 

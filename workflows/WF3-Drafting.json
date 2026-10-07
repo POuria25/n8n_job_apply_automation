@@ -24,7 +24,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE targets t SET status = 'drafting'\nFROM applicants a\nWHERE t.applicant_id = a.id\n  AND t.id IN (SELECT id FROM targets WHERE status = 'email_found' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\nRETURNING t.id, t.company, t.email, t.address, t.postcity, t.contact, t.hr_email, t.attempts,\n          a.chat_id, a.skeleton_file, a.email_sample_file;",
+        "query": "UPDATE targets t SET status = 'drafting', claimed_at = now(), draft_version = t.draft_version + 1\nFROM applicants a\nWHERE t.applicant_id = a.id\n  AND t.id IN (SELECT id FROM targets\n               WHERE status = 'email_found'\n                  OR (status = 'drafting' AND claimed_at < now() - interval '15 minutes')\n               ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\nRETURNING t.id, t.company, t.email, t.address, t.postcity, t.contact, t.hr_email, t.draft_version,\n          a.chat_id, a.skeleton_file, a.email_sample_file;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -86,7 +86,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const t = $('Lock drafting').item.json;\nconst parts = String($json.stdout || '').split('@@@SEP@@@');\nif (parts.length < 2) throw new Error('Fichiers assets introuvables');\nconst [skeleton, sample] = parts.map(s => s.trim());\nconst map = { '\\\\': '\\\\textbackslash{}', '&': '\\\\&', '%': '\\\\%', '$': '\\\\$', '#': '\\\\#', '_': '\\\\_',\n              '{': '\\\\{', '}': '\\\\}', '~': '\\\\textasciitilde{}', '^': '\\\\textasciicircum{}' };\nconst esc = s => String(s ?? '').replace(/[\\\\&%$#_{}~^]/g, c => map[c]);\nconst attention = t.contact ? `À l'attention de ${t.contact}` : \"À l'attention du service Ressources humaines\";\nconst recipient = [t.company, attention, t.address, t.postcity].filter(Boolean).map(esc).join('\\\\\\\\\\n');\nconst date = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });\nconst tex = skeleton.replace('<<RECIPIENT>>', recipient).replace('<<DATE>>', date);\n// email body = sample without the greeting line\nconst body = sample.replace(/^\\s*Madame, Monsieur,\\s*/i, '').trim();\nconst subject = 'Candidature spontanée – Apprentissage DAP Agent administratif et commercial';\nconst b64 = s => Buffer.from(String(s), 'utf8').toString('base64');\nconst caption = `${t.company} → ${[t.email, t.hr_email].filter(Boolean).join(' + ')}\\n${[attention, t.address, t.postcity].filter(Boolean).join('\\n')}\\n\\nObjet : ${subject}`.slice(0, 1000);\nreturn { json: { id: t.id, version: Number(t.attempts) || 0, chat_id: t.chat_id, company: t.company, email: t.email, dir: `/data/jobs/${t.id}`,\n  tex_b64: b64(tex), subject_b64: b64(subject), body_b64: b64(body), caption } };"
+        "jsCode": "const t = $('Lock drafting').item.json;\nconst parts = String($json.stdout || '').split('@@@SEP@@@');\nif (parts.length < 2) throw new Error('Fichiers assets introuvables');\nconst [skeleton, sample] = parts.map(s => s.trim());\nconst map = { '\\\\': '\\\\textbackslash{}', '&': '\\\\&', '%': '\\\\%', '$': '\\\\$', '#': '\\\\#', '_': '\\\\_',\n              '{': '\\\\{', '}': '\\\\}', '~': '\\\\textasciitilde{}', '^': '\\\\textasciicircum{}' };\nconst esc = s => String(s ?? '').replace(/[\\\\&%$#_{}~^]/g, c => map[c]);\nconst attention = t.contact ? `À l'attention de ${t.contact}` : \"À l'attention du service Ressources humaines\";\nconst recipient = [t.company, attention, t.address, t.postcity].filter(Boolean).map(esc).join('\\\\\\\\\\n');\nconst date = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });\nconst tex = skeleton.replace('<<RECIPIENT>>', recipient).replace('<<DATE>>', date);\n// email body = sample without the greeting line\nconst body = sample.replace(/^\\s*Madame, Monsieur,\\s*/i, '').trim();\nconst subject = 'Candidature spontanée – Apprentissage DAP Agent administratif et commercial';\nconst b64 = s => Buffer.from(String(s), 'utf8').toString('base64');\nconst caption = `${t.company} → ${[t.email, t.hr_email].filter(Boolean).join(' + ')}\\n${[attention, t.address, t.postcity].filter(Boolean).join('\\n')}\\n\\nObjet : ${subject}`.slice(0, 1000);\nreturn { json: { id: t.id, version: Number(t.draft_version) || 0, chat_id: t.chat_id, company: t.company, email: t.email, dir: `/data/jobs/${t.id}`,\n  tex_b64: b64(tex), subject_b64: b64(subject), body_b64: b64(body), caption } };"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -155,11 +155,12 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
       "position": [
-        0,
+        208,
         0
       ],
       "id": "2f1f0755-d6d5-43c5-b46b-87d5d6d634c7",
-      "name": "Read PDF"
+      "name": "Read PDF",
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -203,16 +204,17 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        208,
+        400,
         0
       ],
       "id": "c21af85a-9771-4922-8f6d-c149a61eb9b4",
-      "name": "Send preview"
+      "name": "Send preview",
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE targets SET status = 'awaiting_approval',\n  subject = convert_from(decode($1, 'base64'), 'UTF8'),\n  email_body = convert_from(decode($2, 'base64'), 'UTF8'),\n  letter_pdf = $3, error = NULL\nWHERE id = $4 RETURNING id;",
+        "query": "UPDATE targets SET status = 'awaiting_approval',\n  subject = convert_from(decode($1, 'base64'), 'UTF8'),\n  email_body = convert_from(decode($2, 'base64'), 'UTF8'),\n  letter_pdf = $3, error = NULL\nWHERE id = $4 AND status = 'drafting' RETURNING id;",
         "options": {
           "queryReplacement": "={{ $('Render').item.json.subject_b64 }},{{ $('Render').item.json.body_b64 }},{{ $('Render').item.json.dir + '/letter.pdf' }},{{ $('Render').item.json.id }}"
         }
@@ -220,7 +222,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.7,
       "position": [
-        400,
+        0,
         0
       ],
       "id": "937599e3-2560-49c0-ae06-b1222cad0cb1",
@@ -273,6 +275,23 @@
       ],
       "id": "ac23fe03-1789-4aef-bb50-0bb38646e98c",
       "name": "Alert"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE targets SET\n  status = CASE WHEN draft_version >= 5 THEN 'error' ELSE 'email_found' END,\n  error = 'Aperçu non envoyé sur Telegram'\nWHERE id = $1 AND status = 'awaiting_approval' AND draft_version = $2\nRETURNING id, status;",
+        "options": {
+          "queryReplacement": "={{ $('Render').item.json.id }},{{ $('Render').item.json.version }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        608,
+        112
+      ],
+      "id": "82d0c032-83b6-4da4-bf96-3db85efb0dd2",
+      "name": "Preview failed"
     }
   ],
   "pinData": {},
@@ -347,7 +366,7 @@
       "main": [
         [
           {
-            "node": "Read PDF",
+            "node": "Save draft",
             "type": "main",
             "index": 0
           }
@@ -369,14 +388,22 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Preview failed",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Send preview": {
       "main": [
+        [],
         [
           {
-            "node": "Save draft",
+            "node": "Preview failed",
             "type": "main",
             "index": 0
           }
@@ -399,6 +426,17 @@
         [
           {
             "node": "Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save draft": {
+      "main": [
+        [
+          {
+            "node": "Read PDF",
             "type": "main",
             "index": 0
           }

@@ -85,6 +85,7 @@ Die technischen Anleitungen sind auf Englisch.
 | [Demo-Mitschriften](docs/DEMO.de.md) | Wie jedes Szenario in Telegram aussieht |
 | [The workflows in n8n](docs/WORKFLOWS.md) | Screenshots der vier Workflows und Aufbau des Repositorys |
 | [Operations and limitations](docs/OPERATIONS.md) | Fehlersuche, Wiederherstellung, bekannte Schwächen |
+| [Testing](docs/TESTING.md) | Datenbanktests für die Abfragen der Workflows und wie man sie ausführt |
 | [Publishing on GitHub](docs/PUBLISHING.md) | Workflows weitergeben, ohne private Daten preiszugeben |
 
 Eine Installation braucht vier Dinge, die nicht in diesem Repository liegen: eine `.env`-Datei mit Ihren Geheimnissen, einen Bewerber-Datensatz, Ihre privaten Dokumente (Briefvorlage, E-Mail-Text, Lebenslauf, Erklärung) und die in n8n eingetragenen Zugangsdaten.
@@ -93,8 +94,8 @@ Eine Installation braucht vier Dinge, die nicht in diesem Repository liegen: ein
 
 - Die MX-Prüfung beweist nicht, dass ein Postfach existiert, und ein vorübergehender DNS-Fehler kann eine gültige Domain als ungültig markieren.
 - Schlägt WF1 fehl, nachdem es Telegram-Updates gelesen hat, gehen diese Nachrichten verloren.
-- WF4 garantiert keinen genau einmaligen Versand: Überlappende Läufe oder manuelle Wiederholungen können eine E-Mail doppelt senden.
-- Ein mitten im Schritt unterbrochener Datensatz bleibt in `checking`, `drafting` oder `sending`, bis er von Hand zurückgesetzt wird.
+- Überlappende WF4-Läufe können dieselbe Bewerbung nicht doppelt versenden. Ein Duplikat bleibt in einem Fall möglich: Der Mailserver nimmt die Nachricht an, der Workflow scheitert vor dem Vermerk, und die Bewerbung wird danach von Hand erneut eingereiht.
+- Ein in `checking` oder `drafting` unterbrochener Datensatz wird nach 15 Minuten erneut aufgegriffen. Ein in `sending` unterbrochener wird nie automatisch wiederholt und wartet auf eine manuelle Prüfung.
 - Unzustellbarkeitsmeldungen und Antworten werden nicht erfasst.
 - Teile von WF1 gehen von einem einzigen Bewerber aus.
 - Ein Arbeitgeber wird als Duplikat abgelehnt, wenn sein Name oder seine E-Mail-Domain für den Bewerber bereits gespeichert ist.
@@ -103,6 +104,6 @@ Einzelheiten und Verbesserungsvorschläge stehen im [Betriebshandbuch](docs/OPER
 
 ## Stand
 
-Die Dokumentation beruht auf dem Lesen der Workflows und der Konfiguration. Das Datenbankschema und die Freigaberegel wurden gegen eine PostgreSQL-Datenbank getestet; die gesamte Pipeline wurde aus diesem Repository heraus nicht durchgängig getestet. Beginnen Sie mit einem Bewerber und senden Sie die erste Bewerbung an eine Adresse, die Sie selbst kontrollieren.
+Die Dokumentation beruht auf dem Lesen der Workflows und der Konfiguration. Das Schema und alle Abfragen der Workflows sind durch [Datenbanktests](docs/TESTING.md) abgedeckt, einschließlich der Freigaberegeln und des gleichzeitigen Versands. Diese Tests führen weder n8n noch Telegram noch einen Mailserver aus; die gesamte Pipeline wurde aus diesem Repository heraus also nicht durchgängig getestet. Beginnen Sie mit einem Bewerber und senden Sie die erste Bewerbung an eine Adresse, die Sie selbst kontrollieren.
 
 Telegram-Nachrichten, DNS-Abfragen und E-Mails laufen über externe Dienste, auch wenn alles andere selbst gehostet ist.

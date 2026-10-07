@@ -83,6 +83,7 @@ See the [demo transcripts](docs/DEMO.md) for complete example sessions, includin
 | [Demo transcripts](docs/DEMO.md) | What each scenario looks like in Telegram |
 | [The workflows in n8n](docs/WORKFLOWS.md) | Screenshots of the four workflows and the repository layout |
 | [Operations and limitations](docs/OPERATIONS.md) | Troubleshooting, recovery, known weaknesses |
+| [Testing](docs/TESTING.md) | Database tests for the workflow queries and how to run them |
 | [Publishing on GitHub](docs/PUBLISHING.md) | Sharing the workflows without leaking private data |
 
 A deployment needs four things that are not in this repository: a `.env` file with your secrets, an applicant record, your private documents (letter template, email text, CV, declaration), and the credentials you enter in n8n.
@@ -91,8 +92,8 @@ A deployment needs four things that are not in this repository: a `.env` file wi
 
 - The MX check does not prove a mailbox exists, and a temporary DNS failure can mark a good domain as invalid.
 - If WF1 fails after reading Telegram updates, those messages are lost.
-- WF4 does not guarantee exactly-once sending: overlapping runs or manual retries can send an email twice.
-- A record interrupted mid-step stays in `checking`, `drafting`, or `sending` until it is reset by hand.
+- Overlapping WF4 runs cannot send the same application twice. A duplicate is still possible in one case: the mail server accepts a message and the workflow fails before recording it, and the application is then requeued by hand.
+- A record interrupted in `checking` or `drafting` is picked up again after 15 minutes. One interrupted in `sending` is never retried automatically and waits for a manual check.
 - Bounces and replies are not tracked.
 - Parts of WF1 assume a single applicant.
 - An employer is refused as a duplicate when its name or its email domain is already saved for the applicant.
@@ -101,6 +102,6 @@ Details and proposed fixes are in the [operations guide](docs/OPERATIONS.md).
 
 ## Status
 
-The documentation comes from reading the workflows and configuration. The database schema and the approval rule were tested against a PostgreSQL database; the complete pipeline has not been tested end to end from this repository. Start with one applicant and send the first application to an address you control.
+The documentation comes from reading the workflows and configuration. The schema and every workflow query are covered by [database tests](docs/TESTING.md), including approval rules and concurrent sending. Those tests do not run n8n, Telegram, or a mail server, so the complete pipeline has not been tested end to end from this repository. Start with one applicant and send the first application to an address you control.
 
 Telegram messages, DNS lookups, and email pass through external services, although everything else is self-hosted.
