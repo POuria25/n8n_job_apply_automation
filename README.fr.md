@@ -84,6 +84,7 @@ Les guides techniques sont en anglais.
 | [Installation and credentials](docs/SETUP.md) | Docker, schéma de base de données, documents privés, identifiants, premier envoi de test |
 | [Transcriptions de démonstration](docs/DEMO.fr.md) | À quoi ressemble chaque scénario dans Telegram |
 | [The workflows in n8n](docs/WORKFLOWS.md) | Captures des quatre workflows et organisation du dépôt |
+| [Commands](docs/COMMANDS.md) | Requêtes de suivi, limite quotidienne, sauvegarde et restauration, reprise après une erreur |
 | [Operations and limitations](docs/OPERATIONS.md) | Dépannage, reprise, faiblesses connues |
 | [Testing](docs/TESTING.md) | Tests en base de données des requêtes des workflows et façon de les lancer |
 | [Publishing on GitHub](docs/PUBLISHING.md) | Partager les workflows sans divulguer de données privées |

@@ -84,6 +84,7 @@ Die technischen Anleitungen sind auf Englisch.
 | [Installation and credentials](docs/SETUP.md) | Docker, Datenbankschema, private Dokumente, Zugangsdaten, erster Testversand |
 | [Demo-Mitschriften](docs/DEMO.de.md) | Wie jedes Szenario in Telegram aussieht |
 | [The workflows in n8n](docs/WORKFLOWS.md) | Screenshots der vier Workflows und Aufbau des Repositorys |
+| [Commands](docs/COMMANDS.md) | Abfragen zur Überwachung, Tageslimit, Sicherung und Wiederherstellung, Vorgehen nach einem Fehler |
 | [Operations and limitations](docs/OPERATIONS.md) | Fehlersuche, Wiederherstellung, bekannte Schwächen |
 | [Testing](docs/TESTING.md) | Datenbanktests für die Abfragen der Workflows und wie man sie ausführt |
 | [Publishing on GitHub](docs/PUBLISHING.md) | Workflows weitergeben, ohne private Daten preiszugeben |

@@ -82,6 +82,7 @@ See the [demo transcripts](docs/DEMO.md) for complete example sessions, includin
 | [Installation and credentials](docs/SETUP.md) | Docker, database schema, private documents, credentials, first test send |
 | [Demo transcripts](docs/DEMO.md) | What each scenario looks like in Telegram |
 | [The workflows in n8n](docs/WORKFLOWS.md) | Screenshots of the four workflows and the repository layout |
+| [Commands](docs/COMMANDS.md) | Monitoring queries, daily limit, backup and restore, recovery after an error |
 | [Operations and limitations](docs/OPERATIONS.md) | Troubleshooting, recovery, known weaknesses |
 | [Testing](docs/TESTING.md) | Database tests for the workflow queries and how to run them |
 | [Publishing on GitHub](docs/PUBLISHING.md) | Sharing the workflows without leaking private data |

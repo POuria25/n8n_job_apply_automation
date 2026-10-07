@@ -86,6 +86,7 @@ stateDiagram-v2
 | [Installation and credentials](docs/SETUP.md) | Docker، ساختار پایگاه داده، اسناد خصوصی، اطلاعات ورود، نخستین ارسال آزمایشی |
 | [رونوشت‌های نمونه](docs/DEMO.fa.md) | هر سناریو در تلگرام چه شکلی دارد |
 | [The workflows in n8n](docs/WORKFLOWS.md) | تصویر چهار گردش‌کار و ساختار مخزن |
+| [Commands](docs/COMMANDS.md) | پرس‌وجوهای پایش، سقف روزانه، پشتیبان‌گیری و بازیابی، رفع خطا |
 | [Operations and limitations](docs/OPERATIONS.md) | عیب‌یابی، بازیابی، ضعف‌های شناخته‌شده |
 | [Testing](docs/TESTING.md) | آزمون‌های پایگاه داده برای پرس‌وجوهای گردش‌کارها و روش اجرای آن‌ها |
 | [Publishing on GitHub](docs/PUBLISHING.md) | انتشار گردش‌کارها بدون افشای دادهٔ خصوصی |
