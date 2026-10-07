@@ -79,10 +79,10 @@ Once the staged files have been reviewed:
 git commit -m "Publish sanitized job application workflows and documentation"
 ```
 
-Create a new empty GitHub repository named `n8n_job_apply` in your account. To use the commands below, replace `YOUR_USERNAME` and ensure GitHub authentication is configured:
+Create a new empty GitHub repository named `n8n_job_apply_automation` in your account. To use the commands below, replace `YOUR_USERNAME` and ensure GitHub authentication is configured:
 
 ```bash
-git remote add origin https://github.com/YOUR_USERNAME/n8n_job_apply.git
+git remote add origin https://github.com/YOUR_USERNAME/n8n_job_apply_automation.git
 git push -u origin main
 ```
 
