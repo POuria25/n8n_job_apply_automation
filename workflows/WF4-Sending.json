@@ -34,13 +34,7 @@
         112
       ],
       "id": "15facebe-30ff-4c5d-8627-90d0a8c57276",
-      "name": "Pick one",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Pick one"
     },
     {
       "parameters": {
@@ -124,13 +118,6 @@
       ],
       "id": "935eb83f-8d97-41b9-80f7-7b2c3c83cb2b",
       "name": "Send email",
-      "webhookId": "3d0eaf02-a830-48e3-aed1-fdd444ce3b3c",
-      "credentials": {
-        "smtp": {
-          "id": "  ",
-          "name": "SMTP account"
-        }
-      },
       "onError": "continueErrorOutput"
     },
     {
@@ -148,13 +135,7 @@
         0
       ],
       "id": "21a63819-7f7b-47e9-8115-3610df23d6e3",
-      "name": "Mark sent",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Mark sent"
     },
     {
       "parameters": {
@@ -171,14 +152,7 @@
         0
       ],
       "id": "ec0175e5-17bb-4747-a6bc-6ccd7099779b",
-      "name": "Sent notice",
-      "webhookId": "65dfc655-2768-4790-b1f0-7540ec1dcead",
-      "credentials": {
-        "telegramApi": {
-          "id": " ",
-          "name": "Telegram account"
-        }
-      }
+      "name": "Sent notice"
     },
     {
       "parameters": {
@@ -209,13 +183,7 @@
         256
       ],
       "id": "bc11dc33-c43d-4782-abc9-9d3beb70e3fc",
-      "name": "Mark send error",
-      "credentials": {
-        "postgres": {
-          "id": "",
-          "name": "Postgres account"
-        }
-      }
+      "name": "Mark send error"
     },
     {
       "parameters": {
@@ -232,14 +200,7 @@
         256
       ],
       "id": "83127c81-90b0-4159-b8c3-a9a93668b487",
-      "name": "Send alert",
-      "webhookId": "c80c112c-edf7-4f16-bd8f-332579ad1c40",
-      "credentials": {
-        "telegramApi": {
-          "id": " ",
-          "name": "Telegram account"
-        }
-      }
+      "name": "Send alert"
     },
     {
       "parameters": {
@@ -407,16 +368,11 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "bc5c489e-67d9-490c-a4de-ce218f7215a3",
-  "meta": {
-    "instanceId": "15dcc6b4cb95ee4f2f31850a8541d4e1edbf5b81ed21a977e26cb687cdcbd098"
-  },
   "nodeGroups": [],
-  "id": "5xj3m4i2eZuAuu5Z",
   "tags": []
 }
