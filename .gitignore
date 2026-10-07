@@ -29,3 +29,6 @@ workflows-backup*.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# Filled-in local SQL (applicant records)
+*.local.sql

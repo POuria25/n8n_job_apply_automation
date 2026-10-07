@@ -21,7 +21,7 @@ The current templates target a Luxembourg **DAP Agent administratif et commercia
 
 ## Project status
 
-This repository shares the workflow implementation and deployment configuration. A fresh deployment also needs application database tables, an applicant record, private documents, and locally configured credentials. The original database schema and private assets are not included in the reviewed files.
+This repository shares the workflow implementation and deployment configuration. A fresh deployment also needs the application database (created from `db/schema.sql`), an applicant record, private documents, and locally configured credentials. The schema was written from the workflow queries and tested against them; it is not a dump of the original installation. Private assets are not included.
 
 The documentation is based on static inspection of WF1–WF4, the supplied Dockerfile, and Docker Compose configuration. It does not claim an end-to-end deployment test, guaranteed delivery, or duplicate-free sending. Start with one applicant and test only against an address you control.
 
@@ -116,6 +116,8 @@ Recommended repository layout:
 | `workflows/WF4-Sending.json` | Email sending |
 | `Dockerfile` | n8n image with Tectonic |
 | `docker-compose.yml` | Containers, environment, and volumes |
+| `db/schema.sql` | Application tables, constraints, and initial state |
+| `db/applicant.example.sql` | Fictional applicant record to copy and fill in |
 | `examples/` | Fictional letter and email templates to copy into `assets/` |
 | `.env.example` | Configuration names with placeholders only |
 | `.gitignore` | Exclude secrets and private runtime files |
@@ -129,7 +131,7 @@ Rename exported files to the paths above when organizing the repository. Private
 - WF4 has no exactly-once delivery mechanism; overlapping runs or manual retries can duplicate emails.
 - There is no automatic recovery for abandoned claim states, bounce processing, or reply tracking.
 - Several branches assume one applicant; concurrent chats need additional testing and changes.
-- Database uniqueness constraints determine duplicate detection. The original constraints were not supplied.
+- Duplicate detection comes from two unique indexes in `db/schema.sql` (company name and email domain per applicant). The domain rule blocks two employers that share a mail provider; see the setup guide to remove it.
 
 See the operations guide for details and proposed improvements. These are documented limitations, not fixes included in this documentation update.
 
