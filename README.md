@@ -85,6 +85,8 @@ Some failures can leave a record in `checking`, `drafting`, or `sending`. `sent`
 | `/annuler` | Cancel the current entry |
 | `/stats` | Show application counts by status |
 
+For full example sessions with invented data, see the [demo transcripts](docs/DEMO.md).
+
 Start with `/nouveau` and answer the questions. Optional fields can be skipped. Review the recap before saving: input classification uses heuristics and may misinterpret pasted text.
 
 Example contact block, using fictional data:
@@ -121,6 +123,7 @@ The preview contains the letter and recipient information. It does not preview e
 2. Run the controlled first-send checklist in that guide.
 3. Use [Operations and limitations](docs/OPERATIONS.md) for troubleshooting.
 4. Follow [Publishing on GitHub](docs/PUBLISHING.md) before sharing exports.
+5. See [Demo transcripts](docs/DEMO.md) for what each scenario looks like in Telegram.
 
 Recommended repository layout:
 
