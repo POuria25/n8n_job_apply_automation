@@ -81,26 +81,52 @@ Then open `http://localhost:5678` on your computer and complete n8n account setu
 
 ## 3. Provision the application database
 
-**The original application schema was not supplied.** Compose creates the n8n metadata database; it does not create the application's tables. Do not treat the inferred schema in older drafts as a verified migration.
+Compose creates the n8n metadata database (`n8n`). The application's tables are created separately from [`db/schema.sql`](../db/schema.sql).
 
-The workflows require these fields:
+That schema was written from the SQL in WF1–WF4 and checked by running all 17 workflow queries against it on PostgreSQL 16. **It is not a dump of the original installation**, so types and constraints may differ from that database. If you are restoring an existing installation, use its own schema.
 
-| Table | Referenced fields |
+Create a separate database for the application and load the schema:
+
+```bash
+docker compose exec -T postgres createdb -U n8n candidature
+docker compose exec -T postgres psql -U n8n -d candidature -v ON_ERROR_STOP=1 < db/schema.sql
+```
+
+The script can be run again safely: it creates only what is missing and does not reset the Telegram offset.
+
+| Table | Purpose |
 |---|---|
-| `bot_state` | `key`, `value`; a row with key `tg_offset` |
-| `applicants` | `id`, `chat_id`, `sender_name`, `phone`, `skeleton_file`, `email_sample_file`, `cv_file`, `daily_limit` |
-| `targets` | `id`, `applicant_id`, `company`, `email`, `email_domain`, `address`, `postcity`, `contact`, `hr_email`, `status`, `mx_ok`, `subject`, `email_body`, `letter_pdf`, `error`, `attempts`, `approved_at`, `sent_at` |
-| `conversations` | `chat_id`, `step`, `data`, `updated_at` |
+| `bot_state` | Telegram polling offset, in the row with key `tg_offset` (created with value `0`) |
+| `applicants` | One row per applicant; `chat_id` is the Telegram allowlist |
+| `targets` | One row per employer, with the pipeline `status` |
+| `conversations` | Guided-entry dialog state, one row per chat |
 
-Obtain a reviewed schema-only migration from the working installation, or implement and test one against all queries. Required behavior includes generated target IDs, new targets starting at `new`, initialized attempt counts, JSON dialog data, and a unique `conversations.chat_id` for the upsert.
+Register an applicant. Copy [`db/applicant.example.sql`](../db/applicant.example.sql) to a private file, replace every value (chat ID, sender name, document paths, daily limit), and run it once:
 
-Choose duplicate rules deliberately. A unique employer domain per applicant would also block two unrelated employers using the same public email provider. The bot's duplicate message is not evidence of the actual database constraints.
+```bash
+cp db/applicant.example.sql applicant.local.sql
+docker compose exec -T postgres psql -U n8n -d candidature -v ON_ERROR_STOP=1 < applicant.local.sql
+```
 
-Keep application data in a separate database such as `candidature` if that matches your installation. All workflow Postgres nodes must use that database; n8n's metadata database remains `n8n`. Database names and schema must agree with your actual provisioning.
+Do not commit your filled-in copy. The paths are container paths: files in the host's `./assets` appear under `/data/assets`.
 
-After the schema exists, register an applicant with their private chat ID, sender name, document paths, and daily limit. Initialize `bot_state.tg_offset` for a fresh bot. Do not reset an existing offset without understanding which updates would be replayed.
+Check the result:
 
-Verify the database session timezone with `SHOW TIMEZONE;`. WF4 uses `sent_at::date = current_date` for the cap, while the schedule follows n8n's timezone.
+```bash
+docker compose exec -T postgres psql -U n8n -d candidature \
+  -c "SELECT id, chat_id, sender_name, daily_limit FROM applicants;" \
+  -c "SELECT * FROM bot_state;"
+```
+
+**Duplicate rules.** For each applicant, the schema allows one employer per company name (ignoring case) and one per email domain, which is what the bot's "existe déjà (même nom ou même domaine email)" reply describes. The domain rule also blocks two different employers that share a mail provider such as `gmail.com`. To allow that:
+
+```sql
+DROP INDEX targets_applicant_domain_key;
+```
+
+All workflow Postgres nodes must point at the `candidature` database (section 5); n8n's own metadata stays in `n8n`. Do not reset an existing `tg_offset` without understanding which updates would be replayed.
+
+Verify the database session timezone with `SHOW TIMEZONE;`. WF4 uses `sent_at::date = current_date` for the cap, while the schedule follows n8n's timezone. The supplied Compose file does not set a timezone for PostgreSQL, so it defaults to UTC.
 
 ## 4. Add private documents
 
