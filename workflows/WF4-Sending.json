@@ -1,0 +1,378 @@
+{
+  "name": "WF4 – Sending",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0,30 8-17 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -1600,
+        112
+      ],
+      "id": "25a5fe28-75ab-46c9-b566-82cc01ab5561",
+      "name": "Weekdays 8-18 every 30 min"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- One queued application per applicant, oldest approval first, within the daily limit.\n-- Applications already being sent count towards the limit. The row locks make two\n-- overlapping runs unable to claim the same application or the same applicant.\nWITH busy AS (\n  SELECT applicant_id, count(*) AS c FROM targets\n  WHERE status = 'sending' OR (status = 'sent' AND sent_at::date = current_date)\n  GROUP BY applicant_id),\npick AS (\n  SELECT x.id\n  FROM applicants a\n  LEFT JOIN busy b ON b.applicant_id = a.id\n  CROSS JOIN LATERAL (\n    SELECT t.id FROM targets t\n    WHERE t.applicant_id = a.id AND t.status = 'queued'\n    ORDER BY t.approved_at, t.id\n    LIMIT 1\n    FOR UPDATE SKIP LOCKED) x\n  WHERE COALESCE(b.c, 0) < a.daily_limit\n  FOR UPDATE OF a SKIP LOCKED)\nUPDATE targets t SET status = 'sending', claimed_at = now()\nFROM applicants a\nWHERE t.applicant_id = a.id AND t.id IN (SELECT id FROM pick) AND t.status = 'queued'\nRETURNING t.id, t.company, t.email, t.hr_email, t.subject, t.email_body, t.letter_pdf,\n          a.cv_file, a.sender_name, a.phone, a.chat_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1408,
+        112
+      ],
+      "id": "15facebe-30ff-4c5d-8627-90d0a8c57276",
+      "name": "Pick one"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.letter_pdf }}",
+        "options": {
+          "dataPropertyName": "letter"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1008,
+        112
+      ],
+      "id": "96f5961e-549e-495b-a7e0-db93bc95ed0f",
+      "name": "Read letter"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $('Pick one').item.json.cv_file }}",
+        "options": {
+          "dataPropertyName": "cv"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        112
+      ],
+      "id": "31ebfac1-0e49-4a0b-bd8c-ec84f344c447",
+      "name": "Read CV"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/data/assets/declaration.pdf",
+        "options": {
+          "dataPropertyName": "decl"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -608,
+        112
+      ],
+      "id": "bae7b243-94a6-478a-813c-ef3cfa877be8",
+      "name": "Read declaration"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const t = $('Pick one').item.json;\nconst slug = String(t.sender_name || 'Candidate').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_');\nconst f = (b, name) => ({ ...b, fileName: name });\nreturn { json: t, binary: {\n  letter: f($('Read letter').item.binary.letter, `Lettre_de_motivation_${slug}.pdf`),\n  cv: f($('Read CV').item.binary.cv, `CV_${slug}.pdf`),\n  decl: f($input.item.binary.decl, 'Declaration_poste_apprentissage_ADEM.pdf') } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        112
+      ],
+      "id": "867fcdc7-f464-42e8-9c0a-48a67f430164",
+      "name": "Attach"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $json.sender_name }} <{{ $env.SENDER_EMAIL }}>",
+        "toEmail": "={{ [$json.email, $json.hr_email].filter(Boolean).join(', ') }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "=Madame, Monsieur,\n\n{{ $json.email_body }}\n\nCordialement,\n{{ $json.sender_name }}",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "letter,cv,decl"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -208,
+        112
+      ],
+      "id": "935eb83f-8d97-41b9-80f7-7b2c3c83cb2b",
+      "name": "Send email",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE targets SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1 AND status = 'sending' RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $('Attach').item.json.id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        0,
+        0
+      ],
+      "id": "21a63819-7f7b-47e9-8115-3610df23d6e3",
+      "name": "Mark sent"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Attach').item.json.chat_id }}",
+        "text": "=📤 Envoyé à {{ $('Attach').item.json.company }} ({{ [$('Attach').item.json.email, $('Attach').item.json.hr_email].filter(Boolean).join(' + ') }})",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "ec0175e5-17bb-4747-a6bc-6ccd7099779b",
+      "name": "Sent notice"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const t = $('Attach').item.json;\nconst e = String($json.error?.message || $json.error || 'Erreur SMTP inconnue');\nreturn { json: { id: t.id, chat_id: t.chat_id, company: t.company,\n  err_b64: Buffer.from(e, 'utf8').toString('base64'),\n  msg: `⛔ Échec d'envoi à ${t.company} (${t.email}) :\\n${e.slice(0, 300)}` } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        256
+      ],
+      "id": "37c7d80e-a4ba-45c8-be7a-89068afd81d3",
+      "name": "Send error info"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE targets SET status = 'error', error = convert_from(decode($1, 'base64'), 'UTF8') WHERE id = $2 AND status = 'sending' RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $json.err_b64 }},{{ $json.id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        208,
+        256
+      ],
+      "id": "bc11dc33-c43d-4782-abc9-9d3beb70e3fc",
+      "name": "Mark send error"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Send error info').item.json.chat_id }}",
+        "text": "={{ $('Send error info').item.json.msg }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        256
+      ],
+      "id": "83127c81-90b0-4159-b8c3-a9a93668b487",
+      "name": "Send alert"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d66246e8-dddc-49dd-9e12-02cfb792ed97",
+              "leftValue": "={{ !!$json.id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1200,
+        112
+      ],
+      "id": "1690fcf2-ff87-4d5f-bc4a-80fc1b81ad69",
+      "name": "Has row?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Weekdays 8-18 every 30 min": {
+      "main": [
+        [
+          {
+            "node": "Pick one",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick one": {
+      "main": [
+        [
+          {
+            "node": "Has row?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read letter": {
+      "main": [
+        [
+          {
+            "node": "Read CV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CV": {
+      "main": [
+        [
+          {
+            "node": "Read declaration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read declaration": {
+      "main": [
+        [
+          {
+            "node": "Attach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Mark sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send error info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark sent": {
+      "main": [
+        [
+          {
+            "node": "Sent notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send error info": {
+      "main": [
+        [
+          {
+            "node": "Mark send error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark send error": {
+      "main": [
+        [
+          {
+            "node": "Send alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has row?": {
+      "main": [
+        [
+          {
+            "node": "Read letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

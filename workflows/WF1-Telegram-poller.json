@@ -1,0 +1,1082 @@
+{
+  "name": "WF1 – Telegram poller",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -2208,
+        480
+      ],
+      "id": "fab9dd28-ce5f-419d-94e7-620f01578cc8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN value ~ '^[0-9]+$' THEN value::bigint ELSE 0 END AS tg_offset\nFROM bot_state WHERE key = 'tg_offset';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -2000,
+        480
+      ],
+      "id": "de9b7666-e777-4d2f-bfb7-4a525f5cdefd",
+      "name": "Get offset"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_TOKEN }}/getUpdates?offset={{ $json.tg_offset }}&timeout=0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -1808,
+        480
+      ],
+      "id": "8e8f340f-f6ac-4da3-b72c-357b85025eab",
+      "name": "Get updates"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b993b3d5-2423-4d5b-8922-288230ad35ef",
+              "leftValue": "={{ $json.result.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1600,
+        480
+      ],
+      "id": "3fcd5fac-ae57-4063-9e9b-524516a0fcf3",
+      "name": "Has updates"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bot_state SET value = '{{ Math.max(...$json.result.map(u => u.update_id)) + 1 }}' WHERE key = 'tg_offset';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1408,
+        384
+      ],
+      "id": "1b19e2dc-e94b-4d0b-9d00-b22481f8443e",
+      "name": "Save offset",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, chat_id FROM applicants;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1200,
+        384
+      ],
+      "id": "5e87f258-5d5e-4b35-8bd8-cdf321495bcb",
+      "name": "Applicants",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// WF1 — Code node \"Route\" (Run Once for All Items). Replaces the current Route.\n// Changes vs. before:\n//  1. /new and /HR (/rh) are dialog commands, like /nouveau.\n//  2. The FULL text is passed for dialog commands, so \"/new\" + pasted lines in one message works\n//     (before, only the first word was kept and the rest was lost).\n//  3. Plain dialog messages that arrive in the same poll from the same chat are merged into one\n//     item. Otherwise all of them read the same old session state and only the last one counts.\n\nconst updates = $('Get updates').first().json.result || [];\nconst apps = $('Applicants').all().map(i => i.json);\nconst DIALOG_CMD = /^\\/(nouveau|new|annuler|start|hr|rh)(@\\w+)?$/i;\nconst out = [];\n\nfor (const u of updates) {\n  const chatId = u.message?.chat?.id ?? u.callback_query?.message?.chat?.id;\n  const app = apps.find(a => String(a.chat_id) === String(chatId));\n  if (!app) continue;                                   // whitelist\n  const base = { applicant_id: app.id, chat_id: chatId };\n  if (u.callback_query) {\n    const d = String(u.callback_query.data || '');\n    if (d.startsWith('dlg:')) out.push({ ...base, type: 'dialog', text: d.slice(4), callback_id: u.callback_query.id });\n    else out.push({ ...base, type: 'callback', data: d, callback_id: u.callback_query.id });\n  } else if (u.message?.document) {\n    out.push({ ...base, type: 'document', file_id: u.message.document.file_id });\n  } else if (u.message?.text) {\n    const text = u.message.text.trim();\n    const word = text.split(/\\s+/)[0];\n    if (DIALOG_CMD.test(word)) out.push({ ...base, type: 'dialog', text });          // keep pasted lines\n    else if (text.startsWith('/')) out.push({ ...base, type: 'command', text });\n    else if (text.includes(';')) out.push({ ...base, type: 'text', text });          // bulk lines\n    else out.push({ ...base, type: 'dialog', text });                                // answer in the dialog\n  }\n}\n\n// Merge consecutive typed dialog messages of the same chat (not button presses).\n// A new /nouveau, /new, /annuler or /start always starts a fresh item.\nconst startsFresh = t => /^\\/(nouveau|new|annuler|start)\\b/i.test(t);\nconst merged = [];\nfor (const it of out) {\n  const prev = merged[merged.length - 1];\n  const typed = j => j && j.type === 'dialog' && !j.callback_id;\n  if (typed(it) && typed(prev) && prev.chat_id === it.chat_id\n      && !startsFresh(it.text) && !/^\\/(annuler|start)\\b/i.test(prev.text)) {\n    prev.text += '\\n' + it.text;\n  } else merged.push({ ...it });\n}\nreturn merged.map(json => ({ json }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        384
+      ],
+      "id": "8afe99e8-df41-4076-87dc-ce232a067533",
+      "name": "Route"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE targets SET\n  status = CASE $1 WHEN 'approve' THEN 'queued' WHEN 'skip' THEN 'skipped' ELSE 'email_found' END,\n  approved_at = CASE WHEN $1 = 'approve' THEN now() ELSE approved_at END,\n  attempts = attempts + CASE WHEN $1 = 'redo' THEN 1 ELSE 0 END\nWHERE id = $2 AND applicant_id = $3 AND status = 'awaiting_approval'\n  AND draft_version = $4 AND $1 IN ('approve', 'redo', 'skip')\nRETURNING company, status;",
+        "options": {
+          "queryReplacement": "={{ $json.action }},{{ $json.id }},{{ $json.applicant_id }},{{ $json.version }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -208,
+        384
+      ],
+      "id": "f1d2f9f9-9219-4c39-bc01-7460e7794a95",
+      "name": "Apply decision",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Button data is \"action:targetId:draftVersion\". The version is targets.draft_version, which WF3\n// increments every time it drafts the letter, so a button only works for the preview it belongs to. Buttons sent before\n// versions existed have no third part and count as version 0.\nconst [action = '', id = '', version = ''] = String($json.data || '').split(':');\nconst ok = ['approve', 'redo', 'skip'].includes(action) && /^\\d+$/.test(id) && /^\\d*$/.test(version);\nreturn { json: { ...$json, action: ok ? action : 'invalid', id: ok ? Number(id) : 0, version: Number(version) || 0 } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        384
+      ],
+      "id": "40b2098c-a6b2-4394-80b9-6f9fdc64c24b",
+      "name": "Parse callback"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const cb = $('Parse callback').item.json;\nconst row = $('Apply decision').item.json;\nlet msg;\nif (!row.company) msg = '⚠️ Déjà traité ou introuvable.';\nelse if (cb.action === 'approve') msg = `✅ Validé : ${row.company} — envoi programmé.`;\nelse if (cb.action === 'skip') msg = `❌ Ignoré : ${row.company}.`;\nelse msg = `🔄 Nouvelle version en préparation : ${row.company}.`;\nreturn { json: { chat_id: cb.chat_id, msg } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        384
+      ],
+      "id": "7744732c-c9d7-4bdf-8259-f8782d8b7c7b",
+      "name": "Decision msg"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        384
+      ],
+      "id": "31b53232-c064-4994-839d-53a795e37e36",
+      "name": "Decision reply"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bd0449a5-f97f-405a-a496-c7282d5bf66a",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ced16297-0018-42cd-85b9-63f6ab64f1b1",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "callback"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a37c30d9-91fa-4d1a-a0a4-8575b33bc34a",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "document",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "document"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1c13d56e-eaf8-4829-aa61-1421aa78f708",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "command",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "command"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bcf2815c-b462-4ed9-862e-5b38d5dbdcf1",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "dialog",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "dialog"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -800,
+        384
+      ],
+      "id": "959cee45-d178-4797-a154-0934a50d7fac",
+      "name": "By type"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bulk format: Entreprise; email entreprise; adresse; code postal et localité; nom RH; email RH\nconst re = /^[^\\s@;]+@[^\\s@;]+\\.[a-z]{2,}$/i;\nconst b = s => Buffer.from(' ' + String(s || ''), 'utf8').toString('base64'); // leading space: never empty\nconst out = [], bad = [];\nlet chat_id, applicant_id;\nfor (const it of $input.all()) {\n  chat_id = it.json.chat_id; applicant_id = it.json.applicant_id;\n  for (const raw of String(it.json.text || '').split(/\\r?\\n/)) {\n    const l = raw.trim(); if (!l) continue;\n    const [company = '', email = '', address = '', postcity = '', hr_name = '', hr_email = ''] = l.split(';').map(s => s.trim());\n    const e = email.toLowerCase(), h = hr_email.toLowerCase();\n    if (!company || !re.test(e) || (h && !re.test(h))) { bad.push(l); continue; }\n    out.push({ json: { applicant_id, chat_id, company, email: e, email_domain: e.split('@')[1],\n      company_b64: b(company), address_b64: b(address), postcity_b64: b(postcity),\n      contact_b64: b(hr_name), hr_email_b64: b(h) } });\n  }\n}\nif (!out.length) return [{ json: { chat_id, nothing: true, _invalid: bad } }];\nout.forEach(o => o.json._invalid = bad);\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        80
+      ],
+      "id": "500c955b-7d44-4c55-8f65-e96f6443b71c",
+      "name": "Parse lines"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e7bc9709-a4de-43f0-b8a9-228d32185f99",
+              "leftValue": "={{ $json.nothing === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -208,
+        80
+      ],
+      "id": "609e03f0-10a4-4eb4-9e6c-32315b24356c",
+      "name": "Any valide"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO targets (applicant_id, company, email, email_domain, address, postcity, contact, hr_email)\nVALUES ($1, btrim(convert_from(decode($2, 'base64'), 'UTF8')), $3, $4, NULLIF(btrim(convert_from(decode($5, 'base64'), 'UTF8')), ''), NULLIF(btrim(convert_from(decode($6, 'base64'), 'UTF8')), ''), NULLIF(btrim(convert_from(decode($7, 'base64'), 'UTF8')), ''), NULLIF(btrim(convert_from(decode($8, 'base64'), 'UTF8')), ''))\nON CONFLICT DO NOTHING\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $json.applicant_id }},{{ $json.company_b64 }},{{ $json.email }},{{ $json.email_domain }},{{ $json.address_b64 }},{{ $json.postcity_b64 }},{{ $json.contact_b64 }},{{ $json.hr_email_b64 }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b166a351-9732-4564-9774-3ae27f245b68",
+      "name": "Insert target",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $('Parse lines').all();\nconst added = $('Insert target').all().filter(i => i.json.id).length;\nconst dups = parsed.length - added;\nconst bad = parsed[0].json._invalid || [];\nlet msg = `✅ ${added} entreprise(s) ajoutée(s)`;\nif (dups) msg += `\\n⚠️ ${dups} doublon(s) ignoré(s)`;\nif (bad.length) msg += `\\n❌ Format invalide :\\n` + bad.join('\\n');\nreturn [{ json: { chat_id: parsed[0].json.chat_id, msg } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "f188226d-f204-470e-8b90-1962b4b4e47c",
+      "name": "Summary"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        0
+      ],
+      "id": "2421f643-892c-4eac-bb7f-091a54065dbe",
+      "name": "Reply"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "❌ Aucune ligne valide.\n\nLe plus simple : envoie /nouveau et réponds aux questions.\n\nOu une ligne par entreprise :\nEntreprise; email entreprise; adresse; code postal et localité; nom RH; email RH",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        192
+      ],
+      "id": "47508de3-6da5-4931-94bd-4cac98318331",
+      "name": "Reply invalid"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parse callback').item.json.callback_id }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        384
+      ],
+      "id": "d0972127-3bcd-45c3-8bef-54acf025f46b",
+      "name": "Ack",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_TOKEN }}/getFile?file_id={{ $json.file_id }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -608,
+        640
+      ],
+      "id": "8b6e2a13-ed12-4bf9-b398-d09911b9c1bc",
+      "name": "Get file path"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/file/bot{{ $env.TELEGRAM_TOKEN }}/{{ $json.result.file_path }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -400,
+        640
+      ],
+      "id": "60921759-cd5f-40a4-b6e1-93b5bb06b4f0",
+      "name": "Download file"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const src = $('By type').item.json;\nreturn { json: { applicant_id: src.applicant_id, chat_id: src.chat_id, text: String($json.data || '') } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        640
+      ],
+      "id": "f67793d6-5e58-474a-b111-640715af5d5c",
+      "name": "File to text"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status, count(*)::int AS n FROM targets WHERE applicant_id = $1 GROUP BY status ORDER BY status;",
+        "options": {
+          "queryReplacement": "={{ $json.applicant_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -608,
+        832
+      ],
+      "id": "c10377dd-96a3-4407-948b-36e75e84f4b7",
+      "name": "Stats",
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const cmd = $('By type').first().json;\nconst word = String(cmd.text || '').split(/\\s+/)[0].toLowerCase();\nlet msg;\nif (word === '/stats') {\n  const rows = $('Stats').all().map(i => i.json).filter(r => r.status);\n  const labels = { new: 'nouvelles', checking: 'vérification', email_found: 'à rédiger', no_email: 'domaine invalide',\n    drafting: 'en rédaction', awaiting_approval: 'à valider', queued: 'en file d\\'envoi', sending: 'envoi en cours',\n    sent: 'envoyées', replied: 'réponses', skipped: 'ignorées', stop: 'stoppées', error: 'erreurs' };\n  msg = rows.length\n    ? '📊 Statistiques :\\n' + rows.map(r => `• ${labels[r.status] || r.status} : ${r.n}`).join('\\n')\n    : '📊 Aucune entreprise enregistrée pour le moment.';\n} else {\n  msg = 'ℹ️ Pour ajouter une entreprise : /nouveau (le bot pose les questions).\\n\\nOu plusieurs d\\'un coup, une ligne par entreprise :\\nEntreprise; email entreprise; adresse; code postal et localité; nom RH; email RH\\n\\nAutres commandes : /stats, /annuler';\n}\nreturn [{ json: { chat_id: cmd.chat_id, msg } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        832
+      ],
+      "id": "ecb5d830-14c8-4944-930b-8be3b3fcec78",
+      "name": "Command msg"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -208,
+        832
+      ],
+      "id": "5edc0e2b-f2b6-439e-9648-665ca7dcaabe",
+      "name": "Command reply"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_TOKEN }}/answerCallbackQuery?callback_query_id={{ $json.callback_id || 'none' }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -608,
+        1136
+      ],
+      "id": "b3960750-b785-466a-b2d8-010fa348632c",
+      "name": "Ack dialog",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT step, data::text AS data FROM conversations WHERE chat_id = $1;",
+        "options": {
+          "queryReplacement": "={{ $('By type').item.json.chat_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -400,
+        1136
+      ],
+      "id": "d6e98cb2-ac82-490a-8808-332898b3a621",
+      "name": "Load session",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF1 — Code node \"Dialog\" (Run Once for Each Item). Drop-in replacement:\n// same inputs ($('By type').item.json + Load session row) and same output fields as before.\n// Difference: every answer is classified, so the user can type or paste fields in any order,\n// one per message or all in one block. The bot then only asks for what is still missing.\n\nconst src = $('By type').item.json;\nconst raw = String(src.text || '').trim();\nconst step = $json.step || 'done';\nlet data = {}; try { data = typeof $json.data === 'string' ? JSON.parse($json.data) : ($json.data || {}); } catch (e) {}\n\n// ---------- UI ----------\nconst btn = (t, d) => ({ text: t, callback_data: 'dlg:' + d });\nconst kb = rows => ({ inline_keyboard: rows });\nconst NEW = kb([[btn('➕ Nouvelle entreprise', 'new')]]);\nconst CANCEL = kb([[btn('❌ Annuler', 'cancel')]]);\nconst SKIP = kb([[btn('⏭️ Passer', 'skip')], [btn('❌ Annuler', 'cancel')]]);\nconst ask = {\n  company:       [\"🏢 Nom de l'entreprise ?\\n\\n(Tu peux aussi tout coller d'un coup : nom, email, adresse, RH… dans n'importe quel ordre.)\", CANCEL],\n  company_email: [\"📧 Email de l'entreprise ?\", CANCEL],\n  address:       ['📍 Adresse (rue et numéro) ?', SKIP],\n  postcity:      ['📮 Code postal et localité ? (ex : L-9054 Ettelbruck)', SKIP],\n  has_hr:        [\"👤 As-tu le nom et l'email du responsable RH ?\", kb([[btn('Oui', 'yes'), btn('Non', 'no')], [btn('❌ Annuler', 'cancel')]])],\n  hr_name:       ['👤 Nom du responsable RH ? (ex : Madame Weber)', SKIP],\n  hr_email:      ['📧 Email du responsable RH ?', SKIP],\n};\nconst LABEL = { company: 'entreprise', email: 'email entreprise', address: 'adresse', postcity: 'code postal',\n                hr_name: 'contact RH', hr_email: 'email RH' };\nconst STEP_FIELD = { company: 'company', company_email: 'email', address: 'address', postcity: 'postcity',\n                     hr_name: 'hr_name', hr_email: 'hr_email' };\nconst HR_STEPS = ['has_hr', 'hr_name', 'hr_email'];\n\n// ---------- classifier ----------\nconst EMAIL_G  = /[^\\s@;,<>()\"']+@[^\\s@;,<>()\"']+\\.[a-z]{2,}/gi;\nconst PHONE    = /^(t[ée]l\\.?|tel:|phone:?)?\\s*\\+?[\\d\\s().\\/-]{8,}$/i;\nconst PERSON   = /^(monsieur|madame|mademoiselle|m\\.|mme\\.?|mlle\\.?|mr\\.?|mrs\\.?|ms\\.?|herr|frau)\\s+\\S/iu;\nconst POSTAL   = /^(?:[A-Z]{1,2}\\s?-\\s?)?\\d{4,5}\\s+\\p{L}/iu;                 // L-9012 Ettelbruck, 4000 Liège\nconst STREET   = /(?<!\\p{L})(rue|avenue|av\\.|boulevard|bd|route|rte|place|chemin|all[ée]e|impasse|quai|square|cit[ée]|zone|parc|rond-point|op|um|an der|strooss|stra(?:ss|ß)e|str\\.|weg|b\\.?p\\.?|bo[iî]te postale)(?!\\p{L})/iu;\nconst NUM_LEAD = /^\\d+(\\s*[-\\/]\\s*\\d+)?\\s*,?\\s+\\p{L}/u;                     // \"12 Bonnevoie\" yes, \"3D Print\" no\nconst NUM_ONLY = /^\\d+(\\s*[-\\/]\\s*\\d+)?[a-z]?$/i;\nconst COUNTRY  = /^(luxembourg|lëtzebuerg|grand-duché de luxembourg|belgique|belgium|france|deutschland|allemagne|germany)$/i;\nconst HR_CMD   = /^\\/(hr|rh)(@\\w+)?(?=\\s|$)/i;\nconst NEW_CMD  = /^\\/(nouveau|new)(@\\w+)?(?=\\s|$)/i;\nconst clean = s => String(s).replace(/\\s+/g, ' ').trim();\n\n// \"12-14 Av. de l'Exemple, 1234 Ville, Luxembourg\" -> street + postal (country dropped).\n// Only splits when a later segment is a postcode, so \"12-14, Avenue de l'Exemple\" stays whole.\nconst splitAddr = l => {\n  const parts = l.split(/\\s*,\\s*/);\n  if (!parts.slice(1).some(p => POSTAL.test(p))) return [l];\n  const out = [];\n  for (const p of parts) {\n    if (out.length && NUM_ONLY.test(out[out.length - 1])) out[out.length - 1] += ', ' + p;\n    else out.push(p);\n  }\n  return out.filter(p => !COUNTRY.test(p));\n};\nconst kind = l =>\n  PHONE.test(l)  ? 'phone'  :\n  PERSON.test(l) ? 'person' :\n  POSTAL.test(l) ? 'postal' :\n  (STREET.test(l) && /\\d/.test(l)) ? 'street' :\n  NUM_LEAD.test(l) ? 'maybe_street' : 'other';\n\n// Apply text to data. stepField = the field the bot just asked for (single-line answer),\n// or null for a pasted block. Returns { noted: [fields set], ignored: [lines], badEmail }.\nfunction apply(text, section, stepField) {\n  const lines = String(text).split(/\\r?\\n/).map(clean).filter(Boolean);\n  const block = lines.length > 1 || stepField === null;\n  const noted = new Set(), ignored = [];\n  let badEmail = false, tookCompany = false, tookHrName = false;\n  const set = (k, v) => { data[k] = v; noted.add(k); };\n\n  for (let l of lines) {\n    if (HR_CMD.test(l)) { section = 'hr'; l = clean(l.replace(HR_CMD, '')); if (!l) continue; }\n    if (NEW_CMD.test(l)) { l = clean(l.replace(NEW_CMD, '')); if (!l) continue; }\n\n    // e-mails anywhere in the line (\"Monsieur X x@y.lu\" works)\n    for (const e of (l.match(EMAIL_G) || [])) {\n      const m = e.toLowerCase();\n      if (section === 'hr' || stepField === 'hr_email') set('hr_email', m);\n      else if (!data.email || stepField === 'email') set('email', m);\n      else set('hr_email', m);                         // 2nd company-section email: it gets the mail too\n    }\n    l = clean(l.replace(EMAIL_G, ''));\n    if (!l) continue;\n\n    for (const p of splitAddr(l)) {\n      const k = kind(p);\n      if (k === 'phone') { ignored.push(p); continue; }   // never goes into the letter\n      if (k === 'person') { set('hr_name', p); continue; }\n      if (k === 'postal') { set('postcity', p); continue; }\n      if (k === 'street') { set('address', p); continue; }\n      if (k === 'maybe_street' && (stepField === 'address' || (block && data.address === undefined))) { set('address', p); continue; }\n\n      // free text: the answer to what was asked, or the first free line of a block\n      if (!block && stepField) {\n        if (stepField === 'email' || stepField === 'hr_email') badEmail = true;\n        else set(stepField, p);\n      } else if (section === 'hr' && !tookHrName) { set('hr_name', p); tookHrName = true; }\n      else if (section !== 'hr' && !tookCompany)  { set('company', p); tookCompany = true; }\n      else ignored.push(p);\n    }\n  }\n  return { noted: [...noted], ignored, badEmail };\n}\n\n// First field still missing. undefined = never answered, '' = skipped on purpose.\nconst nextStep = d =>\n  !d.company ? 'company' :\n  !d.email ? 'company_email' :\n  d.address === undefined ? 'address' :\n  d.postcity === undefined ? 'postcity' :\n  (d.hr_name === undefined && d.hr_email === undefined) ? 'has_hr' :\n  d.hr_name === undefined ? 'hr_name' :\n  d.hr_email === undefined ? 'hr_email' : 'confirm';\n\n// ---------- state machine ----------\nlet next = step, msg = '', markup = null, finish = false, prefix = '';\nconst go = s => { next = s; if (ask[s]) [msg, markup] = ask[s]; };\nconst goNext = () => go(nextStep(data));\nconst report = r => {\n  const extra = r.noted.filter(k => k !== STEP_FIELD[step]);           // say so when it landed elsewhere\n  if (r.noted.length > 1 || extra.length) prefix += `✔️ Noté : ${r.noted.map(k => LABEL[k]).join(', ')}\\n`;\n  if (r.ignored.length) prefix += `(ignoré : ${r.ignored.join(' · ')})\\n`;\n  if (r.badEmail) prefix += '⚠️ Email invalide.\\n';\n  if (prefix) prefix += '\\n';\n};\nconst isSkip = raw === 'skip' || raw === '-';\nconst section = HR_STEPS.includes(step) ? 'hr' : 'company';\n\nif (/^\\/annuler\\b/i.test(raw) || raw === 'cancel') { next = 'done'; data = {}; msg = '❌ Saisie annulée.'; markup = NEW; }\nelse if (NEW_CMD.test(raw) || raw === 'new') {\n  data = {};\n  const rest = raw === 'new' ? '' : raw.replace(NEW_CMD, '').trim();\n  if (rest) report(apply(rest, 'company', null));\n  goNext();\n}\nelse if (HR_CMD.test(raw) && step !== 'done') {\n  const rest = raw.replace(HR_CMD, '').trim();\n  if (rest) { report(apply(rest, 'hr', null)); goNext(); }\n  else go('hr_name');\n}\nelse if (/^\\/start\\b/i.test(raw)) { next = 'done'; msg = '👋 Pour ajouter une entreprise, appuie sur le bouton (ou envoie /nouveau).'; markup = NEW; }\nelse if (step === 'done') {\n  // Pasted a block without /nouveau: start automatically if it clearly contains company data.\n  const probe = { ...data }; data = {};\n  const r = apply(raw, 'company', null);\n  if (data.email && Object.keys(data).length >= 2) { report(r); goNext(); }\n  else { data = probe; next = 'done'; msg = '👋 Pour ajouter une entreprise, appuie sur le bouton (ou envoie /nouveau).'; markup = NEW; }\n}\nelse if (step === 'confirm') {\n  if (raw === 'save' || /^(oui|ok|yes)$/i.test(raw)) { finish = true; next = 'done'; }\n  else { report(apply(raw, 'company', null)); goNext(); }             // typed a correction at the recap\n}\nelse if (step === 'has_hr') {\n  if (raw === 'yes' || /^oui$/i.test(raw)) go('hr_name');\n  else if (raw === 'no' || /^non$/i.test(raw)) { data.hr_name = ''; data.hr_email = ''; goNext(); }\n  else { report(apply(raw, 'hr', null)); goNext(); }                   // typed/pasted the contact directly\n}\nelse if (STEP_FIELD[step]) {\n  const field = STEP_FIELD[step];\n  if (isSkip) {\n    if (['address', 'postcity', 'hr_name', 'hr_email'].includes(field)) data[field] = '';\n    goNext();\n  } else if (['yes', 'no', 'save'].includes(raw)) {\n    go(step);                                                          // stale button press\n  } else {\n    const r = apply(raw, section, field);\n    report(r);\n    if (r.badEmail && !r.noted.includes(field)) go(step); else goNext();\n  }\n}\nelse { next = 'done'; msg = '👋 Envoie /nouveau pour ajouter une entreprise.'; markup = NEW; }\n\nif (next === 'confirm') {\n  const att = data.hr_name ? `À l'attention de ${data.hr_name}` : \"À l'attention du service Ressources humaines\";\n  const to = [data.email, data.hr_email].filter(Boolean).join('\\n   + ');\n  const addr = [data.address, data.postcity].filter(Boolean).join(', ') || \"(pas d'adresse)\";\n  msg = `📋 Récapitulatif\\n\\n🏢 ${data.company}\\n${att}\\n📍 ${addr}\\n📧 Envoi à : ${to}\\n\\nEnregistrer ?\\n(Pour corriger, envoie simplement la bonne info.)`;\n  markup = kb([[btn('✅ Enregistrer', 'save'), btn('❌ Annuler', 'cancel')]]);\n}\nmsg = prefix + msg;\n\n// ---------- output (unchanged shape) ----------\nconst b = s => Buffer.from(' ' + String(s || ''), 'utf8').toString('base64'); // leading space: never empty\nconst tg_body = { chat_id: src.chat_id, text: msg };\nif (markup) tg_body.reply_markup = markup;\nconst email = data.email || '';\nreturn { json: { chat_id: src.chat_id, applicant_id: src.applicant_id, finish, step: next,\n  data_b64: Buffer.from(JSON.stringify(data), 'utf8').toString('base64'), tg_body,\n  company: data.company || '', email, email_domain: email.split('@')[1] || '',\n  company_b64: b(data.company), address_b64: b(data.address), postcity_b64: b(data.postcity),\n  contact_b64: b(data.hr_name), hr_email_b64: b(data.hr_email) } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        1136
+      ],
+      "id": "3c85e758-1a6b-4693-a543-a0eb047f01b6",
+      "name": "Dialog"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (chat_id, step, data, updated_at)\nVALUES ($1, $2, convert_from(decode($3, 'base64'), 'UTF8')::jsonb, now())\nON CONFLICT (chat_id) DO UPDATE SET step = EXCLUDED.step, data = EXCLUDED.data, updated_at = now()\nRETURNING step;",
+        "options": {
+          "queryReplacement": "={{ $json.chat_id }},{{ $json.step }},{{ $json.data_b64 }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        0,
+        1136
+      ],
+      "id": "f3795edc-009a-423f-9104-2c239feabdd8",
+      "name": "Save session"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "970b0775-8aa8-4893-8cc4-48b6327fd32a",
+              "leftValue": "={{ $('Dialog').item.json.finish }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        208,
+        1136
+      ],
+      "id": "d6199127-94a6-4674-a60c-b8136e6b69c4",
+      "name": "Finished?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO targets (applicant_id, company, email, email_domain, address, postcity, contact, hr_email)\nVALUES ($1, btrim(convert_from(decode($2, 'base64'), 'UTF8')), $3, $4, NULLIF(btrim(convert_from(decode($5, 'base64'), 'UTF8')), ''), NULLIF(btrim(convert_from(decode($6, 'base64'), 'UTF8')), ''), NULLIF(btrim(convert_from(decode($7, 'base64'), 'UTF8')), ''), NULLIF(btrim(convert_from(decode($8, 'base64'), 'UTF8')), ''))\nON CONFLICT DO NOTHING\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $('Dialog').item.json.applicant_id }},{{ $('Dialog').item.json.company_b64 }},{{ $('Dialog').item.json.email }},{{ $('Dialog').item.json.email_domain }},{{ $('Dialog').item.json.address_b64 }},{{ $('Dialog').item.json.postcity_b64 }},{{ $('Dialog').item.json.contact_b64 }},{{ $('Dialog').item.json.hr_email_b64 }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        400,
+        1040
+      ],
+      "id": "6880848e-8e7a-4c24-af91-e77d5b610781",
+      "name": "Insert dialog target",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const d = $('Dialog').item.json;\nconst ok = !!$json.id;\nconst msg = ok\n  ? `✅ ${d.company} enregistrée. La lettre arrive dans quelques minutes.\\n\\nPour une autre entreprise : /nouveau`\n  : `⚠️ ${d.company} existe déjà (même nom ou même domaine email).\\n\\nPour une autre entreprise : /nouveau`;\nreturn { json: { chat_id: d.chat_id, msg } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        1040
+      ],
+      "id": "4e6ce4e0-23bb-4d09-a328-2be959d86534",
+      "name": "Saved msg"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        800,
+        1040
+      ],
+      "id": "ddeb1b42-5557-4246-9427-a6bfb7bdadb9",
+      "name": "Saved reply"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Dialog').item.json.tg_body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        400,
+        1232
+      ],
+      "id": "fa7ed461-826b-4b9a-8d0d-5f83a434c13e",
+      "name": "Ask"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get offset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get offset": {
+      "main": [
+        [
+          {
+            "node": "Get updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get updates": {
+      "main": [
+        [
+          {
+            "node": "Has updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has updates": {
+      "main": [
+        [
+          {
+            "node": "Save offset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save offset": {
+      "main": [
+        [
+          {
+            "node": "Applicants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Applicants": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "By type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "By type": {
+      "main": [
+        [
+          {
+            "node": "Parse lines",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get file path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ack dialog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse lines": {
+      "main": [
+        [
+          {
+            "node": "Any valide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any valide": {
+      "main": [
+        [
+          {
+            "node": "Insert target",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert target": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary": {
+      "main": [
+        [
+          {
+            "node": "Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse callback": {
+      "main": [
+        [
+          {
+            "node": "Apply decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply decision": {
+      "main": [
+        [
+          {
+            "node": "Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack": {
+      "main": [
+        [
+          {
+            "node": "Decision msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision msg": {
+      "main": [
+        [
+          {
+            "node": "Decision reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get file path": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "File to text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File to text": {
+      "main": [
+        [
+          {
+            "node": "Parse lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stats": {
+      "main": [
+        [
+          {
+            "node": "Command msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Command msg": {
+      "main": [
+        [
+          {
+            "node": "Command reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack dialog": {
+      "main": [
+        [
+          {
+            "node": "Load session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load session": {
+      "main": [
+        [
+          {
+            "node": "Dialog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dialog": {
+      "main": [
+        [
+          {
+            "node": "Save session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save session": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Insert dialog target",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ask",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert dialog target": {
+      "main": [
+        [
+          {
+            "node": "Saved msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Saved msg": {
+      "main": [
+        [
+          {
+            "node": "Saved reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
